@@ -59,14 +59,14 @@ func main() {
 		if err != nil {
 			fmt.Println("Local grep error:", err)
 		} else {
-			fmt.Printf("%s:%d:%s:\n", nodeName, len(localLines), "sample.log")
-			for _, line := range localLines {
-				fmt.Printf("%s:%d:%s: %s\n", nodeName, len(localLines), "sample.log", line)
-			}
+			fmt.Printf("localhost:%s:%s:Number of lines:%d\n", node.Port, "sample.log", len(localLines))
+			// for _, line := range localLines {
+			// 	fmt.Printf("%s:%d:%s: %s\n", nodeName, len(localLines), "sample.log", line)
+			// }
 		}
 
 		for _, peer := range node.Peers {
-			fmt.Printf("[Results from %s]\n", peer)
+			// fmt.Printf("[Results from %s]\n", peer)
 			client, err := rpc.Dial("tcp", peer)
 			if err != nil {
 				fmt.Println("Failed to connect to", peer)
@@ -80,10 +80,10 @@ func main() {
 				fmt.Println("RPC error from", peer, ":", err)
 				continue
 			}
-			fmt.Printf("%s:%d:%s:\n", peer, len(reply.Reply), "sample.log")
-			for _, line := range reply.Reply {
-				fmt.Printf("%s:%d:%s: %s\n", peer, len(reply.Reply), "sample.log", line)
-			}
+			fmt.Printf("%s:%s:Number of lines:%d\n", peer, "sample.log", len(reply.Reply))
+			// for _, line := range reply.Reply {
+			// 	fmt.Printf("%s:%d:%s: %s\n", peer, len(reply.Reply), "sample.log", line)
+			// }
 		}
 	}
 }
