@@ -104,7 +104,7 @@ func TestSomewhatFrequentPatterns(t *testing.T) {
 func TestGrepOptions(t *testing.T) {
 	fmt.Print("\n======TestGrepOptions=====\n")
 	for i := 0; i < 5; i++ {
-		pattern := "get"
+		pattern := "GET"
 		options := []string{"-c"}
 
 		// Use vm1 for testing
