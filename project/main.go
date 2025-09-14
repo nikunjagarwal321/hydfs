@@ -41,20 +41,28 @@ func setupNetworkListener(port string, vmID string) (net.Listener, error) {
 // First option is pattern/regex
 // Second option is flag
 func parseUserInput(reader *bufio.Reader) (string, []string) {
-	fmt.Print("Enter grep pattern and flags (e.g., 'pattern -i'): ")
-	input, err := reader.ReadString('\n')
+	fmt.Print("Enter grep pattern: ")
+	pattern, err := reader.ReadString('\n')
 	if err != nil {
 		fmt.Println("Error reading input:", err)
 		return "", nil
 	}
-	input = strings.TrimSpace(input)
-	args := strings.Fields(input)
-	if len(args) == 0 {
+
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
 		fmt.Println("Please enter a pattern. No pattern entered")
 		return "", nil
 	}
-	pattern := args[0]
-	flags := args[1:]
+
+	fmt.Print("Enter grep flags (space-separated, or leave blank): ")
+	flagsInput, err := reader.ReadString('\n')
+	if err != nil {
+		fmt.Println("Error reading flags:", err)
+		return pattern, nil
+	}
+	flagsInput = strings.TrimSpace(flagsInput)
+	flags := strings.Fields(flagsInput) // split by spaces
+
 	return pattern, flags
 }
 
@@ -160,6 +168,8 @@ func runInteractiveMode(vmID string) {
 
 		timestamp := time.Now().Format("20060102_150405")
 
+		fmt.Printf("Filename timestamp:%s\n", timestamp)
+
 		// Execute local grep and get line count
 		localLineCount := executeLocalGrep(pattern, flags, vmID, timestamp)
 
@@ -199,4 +209,45 @@ func main() {
 	// Runs the main program in interactive mode.
 	// On the same terminal, we can enter grep options. It will act as a client and call other servers to get grep output
 	runInteractiveMode(vmID)
+}
+
+// Generates log file in other vms
+func executeFileGenerationInOtherVMs(vmID string, lines int) {
+	var wg sync.WaitGroup
+	otherVMs := getAllOtherVMs(vmID)
+	for _, vm := range otherVMs {
+		wg.Add(1)
+		// Run connect and grep on each server parallely using go routines.
+		go func(vmInfo VMInfo) {
+			defer wg.Done()
+			client, err := rpc.Dial("tcp", vmInfo.Address)
+			if err != nil {
+				fmt.Println("Failed to connect to", vmInfo.Address)
+				return
+			}
+			defer client.Close()
+
+			generateFileArgs := &GenerateFileArgs{Lines: lines}
+			var reply GenerateFileResponse
+			done := make(chan error, 1)
+			go func() {
+				done <- client.Call("RpcService.GenerateLogFile", generateFileArgs, &reply)
+			}()
+
+			select {
+			case err := <-done:
+				if err != nil {
+					fmt.Println("RPC error from", vmInfo.Address, ":", err)
+					return
+				}
+
+				// Display results
+				fmt.Printf("Message from %s VM : %s\n", vmInfo.Address, reply.Message)
+
+			case <-time.After(5 * time.Second):
+				fmt.Println("Timeout from", vmInfo.Address)
+			}
+		}(vm)
+	}
+	wg.Wait()
 }
