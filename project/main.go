@@ -6,125 +6,197 @@ import (
 	"net"
 	"net/rpc"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
-func getLocalHostname() string {
-	out, err := exec.Command("hostname").Output()
-	if err != nil {
-		return "unknown"
-	}
-	return strings.TrimSpace(string(out))
+// Gets hostname, port based on vmId
+func getCurrentNodeInfo(vmID string) (string, string) {
+	hostname, port := getHostnameAndPortFromVMID(vmID)
+	return hostname, port
 }
 
-func getLogFileFromHostname() string {
-	hostname := getLocalHostname()
-	//print(hostname)
-	parts := strings.Split(hostname, "-")
-	if len(parts) <= 2 {
-		return "sample.log"
+// Registers the rpc service object
+func setupRPCService(vmID string) {
+	serviceObj := &RpcService{ID: vmID}
+	rpc.Register(serviceObj)
+}
+
+// Sets up the listener for the servers.
+func setupNetworkListener(port string, vmID string) (net.Listener, error) {
+	ln, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		fmt.Println(vmID, "failed to listen:", err)
+		return nil, err
 	}
-	num := parts[len(parts)-1] // e.g., "3701.cs.illinois.edu"
-	num = strings.Split(num, ".")[0]
-	if len(num) >= 2 {
-		lastTwo := num[len(num)-2:]
-		return fmt.Sprintf("machine.%s.log", lastTwo)
+	fmt.Println(vmID, "listening on port", port)
+	// This is the go routine. It opens a new thread and waits for clients to conenct
+	go rpc.Accept(ln)
+	return ln, nil
+}
+
+// THis function parses user input to get patterns and flags
+// First option is pattern/regex
+// Second option is flag
+func parseUserInput(reader *bufio.Reader) (string, []string) {
+	fmt.Print("Enter grep pattern and flags (e.g., 'pattern -i'): ")
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		fmt.Println("Error reading input:", err)
+		return "", nil
 	}
-	return "sample.log"
+	input = strings.TrimSpace(input)
+	args := strings.Fields(input)
+	if len(args) == 0 {
+		fmt.Println("Please enter a pattern. No pattern entered")
+		return "", nil
+	}
+	pattern := args[0]
+	flags := args[1:]
+	return pattern, flags
+}
+
+func savePeerOutput(peerVMID, timestamp, peer string, reply []string) {
+	if peerVMID != "unknown" {
+		if saveErr := saveGrepOutput(timestamp, peerVMID, reply); saveErr != nil {
+			fmt.Printf("Warning: Failed to save output from %s: %v\n", peer, saveErr)
+		}
+	}
+}
+
+// Executes grep locally. It fetches log file name based on vmId. Runs grep on it and saves the result in a file.
+// timestamp is used for naming the output file.
+// Returns the number of matching lines found locally.
+func executeLocalGrep(pattern string, flags []string, vmID string, timestamp string) int {
+	localFile, err := getLogFilename(vmID)
+	if err != nil {
+		fmt.Println("Error getting log filename:", err)
+		return 0
+	}
+
+	localLines, err := RunGrep(append(flags, pattern, localFile)...)
+	if err != nil {
+		fmt.Println("Local grep error:", err)
+		return 0
+	}
+
+	// Display results
+	fmt.Printf("Number of lines from local:%d\n", len(localLines))
+
+	// Save output to file
+	if saveErr := saveGrepOutput(timestamp, vmID, localLines); saveErr != nil {
+		fmt.Printf("Warning: Failed to save local output: %v\n", saveErr)
+	}
+
+	return len(localLines)
+}
+
+// Runs the remote grep on all other servers
+// Returns the total number of matching lines found across all remote servers
+func executeRemoteGrep(pattern string, flags []string, vmID string, timestamp string) int {
+	var wg sync.WaitGroup
+	var totalRemoteLines int64 //for atomic operations
+	otherVMs := getAllOtherVMs(vmID)
+
+	for _, vm := range otherVMs {
+		wg.Add(1)
+		// Run connect and grep on each server parallely using go routines.
+		go func(vmInfo VMInfo) {
+			defer wg.Done()
+
+			client, err := rpc.Dial("tcp", vmInfo.Address)
+			if err != nil {
+				fmt.Println("Failed to connect to", vmInfo.Address)
+				return
+			}
+			defer client.Close()
+
+			grepArgs := &GrepArgs{Pattern: pattern, Options: flags}
+			var reply GrepResponse
+			done := make(chan error, 1)
+			go func() {
+				done <- client.Call("RpcService.ExecuteGrep", grepArgs, &reply)
+			}()
+
+			select {
+			case err := <-done:
+				if err != nil {
+					fmt.Println("RPC error from", vmInfo.Address, ":", err)
+					return
+				}
+
+				// Display results
+				fmt.Printf("Number of lines from %s::%d\n", vmInfo.Address, len(reply.Reply))
+
+				// Save output to file
+				savePeerOutput(vmInfo.ID, timestamp, vmInfo.Address, reply.Reply)
+
+				// Atomically add to total count
+				atomic.AddInt64(&totalRemoteLines, int64(len(reply.Reply)))
+
+			case <-time.After(5 * time.Second):
+				fmt.Println("Timeout from", vmInfo.Address)
+			}
+		}(vm)
+	}
+	wg.Wait()
+
+	return int(totalRemoteLines)
+}
+
+// Runs the server chat in interactive mode. Users can enter patterns and flags multiple times for grep.
+// It will first run local grep and then push grep to remote servers.
+func runInteractiveMode(vmID string) {
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		pattern, flags := parseUserInput(reader)
+		fmt.Printf("Pattern = %s, flags = %s\n", pattern, flags)
+		if pattern == "" {
+			fmt.Println("No Pattern found input")
+			continue
+		}
+
+		timestamp := time.Now().Format("20060102_150405")
+
+		// Execute local grep and get line count
+		localLineCount := executeLocalGrep(pattern, flags, vmID, timestamp)
+
+		// Execute remote grep and get total remote line count
+		remoteLineCount := executeRemoteGrep(pattern, flags, vmID, timestamp)
+
+		// Calculate and display total
+		totalLineCount := localLineCount + remoteLineCount
+
+		fmt.Printf("Total lines found across all servers: %d\n", totalLineCount)
+	}
 }
 
 func main() {
+	// Get VM ID from command line arguments
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: go run . <NodeName>")
-		return
-	}
-	nodeName := os.Args[1]
-	node, ok := nodeMap[nodeName]
-	if !ok {
-		fmt.Println("Node name not found in config:", nodeName)
+		fmt.Println("Provide vm id in args")
 		return
 	}
 
-	serviceObj := &RpcService{ID: node.ID}
-	rpc.Register(serviceObj)
+	vmID := os.Args[1]
 
-	ln, err := net.Listen("tcp", ":"+node.Port)
+	// Get node info based on VM ID
+	hostname, port := getCurrentNodeInfo(vmID)
+
+	if hostname == "" || port == "" {
+		fmt.Printf("No VM Mapping found for %s\n", vmID)
+		return
+	}
+	fmt.Printf("Starting %s on %s:%s\n", vmID, hostname, port)
+	setupRPCService(vmID)
+	ln, err := setupNetworkListener(port, vmID)
 	if err != nil {
-		fmt.Println(node.ID, "failed to listen:", err)
 		return
 	}
 	defer ln.Close()
-
-	fmt.Println(node.ID, "listening on port", node.Port)
-	go rpc.Accept(ln)
-
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		fmt.Print("Enter grep pattern and flags (e.g., 'pattern -i'): ")
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			fmt.Println("Error reading input:", err)
-			continue
-		}
-		input = strings.TrimSpace(input)
-		if input == "exit" || input == "quit" {
-			fmt.Println("Exiting...")
-			break
-		}
-		args := strings.Fields(input)
-		if len(args) == 0 {
-			fmt.Println("Please enter a pattern.")
-			continue
-		}
-		pattern := args[0]
-		flags := args[1:]
-
-		// Local grep
-		localFile := getLogFileFromHostname()
-		localLines, err := RunGrep(append(flags, pattern, localFile)...)
-		if err != nil {
-			fmt.Println("Local grep error:", err)
-		} else {
-			fmt.Printf("localhost:%s:%s:Number of lines:%d\n", node.Port, localFile, len(localLines))
-		}
-
-		// Parallel RPC calls to peers
-		var wg sync.WaitGroup
-		for _, peer := range node.Peers {
-			wg.Add(1)
-			go func(peer string) {
-				defer wg.Done()
-
-				client, err := rpc.Dial("tcp", peer)
-				if err != nil {
-					fmt.Println("Failed to connect to", peer)
-					return
-				}
-				defer client.Close()
-
-				grepArgs := &GrepArgs{Pattern: pattern, File: localFile, Options: flags}
-				var reply GrepResponse
-
-				done := make(chan error, 1)
-				go func() {
-					done <- client.Call("RpcService.ExecuteGrep", grepArgs, &reply)
-				}()
-
-				select {
-				case err := <-done:
-					if err != nil {
-						fmt.Println("RPC error from", peer, ":", err)
-						return
-					}
-					fmt.Printf("%s:%s:Number of lines:%d\n", peer, localFile, len(reply.Reply))
-				case <-time.After(5 * time.Second):
-					fmt.Println("Timeout from", peer)
-				}
-			}(peer)
-		}
-		wg.Wait()
-	}
+	// Runs the main program in interactive mode.
+	// On the same terminal, we can enter grep options. It will act as a client and call other servers to get grep output
+	runInteractiveMode(vmID)
 }

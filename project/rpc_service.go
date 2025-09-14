@@ -6,7 +6,6 @@ import (
 
 type GrepArgs struct {
 	Pattern string
-	File    string
 	Options []string
 }
 
@@ -19,11 +18,19 @@ type RpcService struct {
 }
 
 func (s *RpcService) ExecuteGrep(args *GrepArgs, response *GrepResponse) error {
-	lines, err := RunGrep(append(args.Options, args.Pattern, args.File)...)
+	// Use the VM ID that was set when the service was created
+	localFile, err := getLogFilename(s.ID)
 	if err != nil {
-		fmt.Println("Error:", err)
+		fmt.Printf("Error getting log filename for VM %s: %v\n", s.ID, err)
 		return err
 	}
+
+	lines, err := RunGrep(append(args.Options, args.Pattern, localFile)...)
+	if err != nil {
+		fmt.Printf("Error running grep on %s: %v\n", s.ID, err)
+		return err
+	}
+	fmt.Printf("Found %d lines on current server\n", len(lines))
 	*response = GrepResponse{Reply: lines}
 	return nil
 }
