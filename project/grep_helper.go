@@ -11,8 +11,14 @@ func RunGrep(args ...string) ([]string, error) {
 	if len(args) == 0 {
 		return nil, fmt.Errorf("no arguments provided to grep")
 	}
-	fmt.Println("Running grep with args:", args) // Log the command
-	cmd := exec.Command("grep", args...)
+	grepArgs := []string{}
+	for _, arg := range args {
+		if arg != "-savelog" {
+			grepArgs = append(grepArgs, arg)
+		}
+	}
+	fmt.Println("Running grep with args:", grepArgs) // Log the command
+	cmd := exec.Command("grep", grepArgs...)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
