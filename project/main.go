@@ -41,20 +41,28 @@ func setupNetworkListener(port string, vmID string) (net.Listener, error) {
 // First option is pattern/regex
 // Second option is flag
 func parseUserInput(reader *bufio.Reader) (string, []string) {
-	fmt.Print("Enter grep pattern and flags (e.g., 'pattern -i'): ")
-	input, err := reader.ReadString('\n')
+	fmt.Print("Enter grep pattern: ")
+	pattern, err := reader.ReadString('\n')
 	if err != nil {
 		fmt.Println("Error reading input:", err)
 		return "", nil
 	}
-	input = strings.TrimSpace(input)
-	args := strings.Fields(input)
-	if len(args) == 0 {
+
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
 		fmt.Println("Please enter a pattern. No pattern entered")
 		return "", nil
 	}
-	pattern := args[0]
-	flags := args[1:]
+
+	fmt.Print("Enter grep flags (space-separated, or leave blank): ")
+	flagsInput, err := reader.ReadString('\n')
+	if err != nil {
+		fmt.Println("Error reading flags:", err)
+		return pattern, nil
+	}
+	flagsInput = strings.TrimSpace(flagsInput)
+	flags := strings.Fields(flagsInput) // split by spaces
+
 	return pattern, flags
 }
 
