@@ -18,9 +18,9 @@ func GenerateLogFile(vmID string, lines int) error {
 	defer f.Close()
 
 	w := bufio.NewWriter(f)
-	frequent := "GET: Get request"
-	somewhat := "PUT: Put request"
-	rare := "DELETE: Delete request"
+	frequent := "GET: [17/Aug/2022:18:23:49 -0500] /list HTTP/1.0 301 5090 http://www.sawyer.com/home.htm Mozilla/5.0 (Windows 98; Win 9x 4.90) AppleWebKit/5342 (KHTML, like Gecko) Chrome/14.0.858.0 Safari/5342"
+	somewhat := "PUT: [17/Aug/2022:18:23:49 -0500] /list HTTP/1.0 301 5090 http://www.sawyer.com/home.htm Mozilla/5.0 (Windows 98; Win 9x 4.90) AppleWebKit/5342 (KHTML, like Gecko) Chrome/14.0.858.0 Safari/5342"
+	rare := "DELETE: [17/Aug/2022:18:23:49 -0500] /list HTTP/1.0 301 5090 http://www.sawyer.com/home.htm Mozilla/5.0 (Windows 98; Win 9x 4.90) AppleWebKit/5342 (KHTML, like Gecko) Chrome/14.0.858.0 Safari/5342"
 	total := lines
 	freqCount := int(0.7 * float32(total)) // 70%
 	someCount := int(0.2 * float32(total)) // 20%
