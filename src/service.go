@@ -16,6 +16,11 @@ type BroadcastArgs struct {
 // Broadcast prints the message
 func (s *MessageService) Broadcast(args *BroadcastArgs, reply *string) error {
 	fmt.Printf("[%s] Received from %s: %s\n", s.ID, args.Sender, args.Message)
+
+// Call grep implementation here
+	
+
+
 	*reply = "OK"
 	return nil
 }

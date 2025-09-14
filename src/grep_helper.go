@@ -15,6 +15,7 @@ func RunGrep(args ...string) ([]string, error) {
 		return nil, fmt.Errorf("no arguments provided to grep")
 	}
 
+	fmt.Println("Grep command:", append([]string{"grep"}, args...))
 	// Run grep command
 	cmd := exec.Command("grep", args...)
 

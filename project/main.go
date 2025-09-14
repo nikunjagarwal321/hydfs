@@ -6,8 +6,35 @@ import (
 	"net"
 	"net/rpc"
 	"os"
+	"os/exec"
 	"strings"
+	"sync"
+	"time"
 )
+
+func getLocalHostname() string {
+	out, err := exec.Command("hostname").Output()
+	if err != nil {
+		return "unknown"
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func getLogFileFromHostname() string {
+	hostname := getLocalHostname()
+	//print(hostname)
+	parts := strings.Split(hostname, "-")
+	if len(parts) <= 2 {
+		return "sample.log"
+	}
+	num := parts[len(parts)-1] // e.g., "3701.cs.illinois.edu"
+	num = strings.Split(num, ".")[0]
+	if len(num) >= 2 {
+		lastTwo := num[len(num)-2:]
+		return fmt.Sprintf("machine.%s.log", lastTwo)
+	}
+	return "sample.log"
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -55,35 +82,49 @@ func main() {
 		pattern := args[0]
 		flags := args[1:]
 
-		localLines, err := RunGrep(append(flags, pattern, "sample.log")...)
+		// Local grep
+		localFile := getLogFileFromHostname()
+		localLines, err := RunGrep(append(flags, pattern, localFile)...)
 		if err != nil {
 			fmt.Println("Local grep error:", err)
 		} else {
-			fmt.Printf("localhost:%s:%s:Number of lines:%d\n", node.Port, "sample.log", len(localLines))
-			// for _, line := range localLines {
-			// 	fmt.Printf("%s:%d:%s: %s\n", nodeName, len(localLines), "sample.log", line)
-			// }
+			fmt.Printf("localhost:%s:%s:Number of lines:%d\n", node.Port, localFile, len(localLines))
 		}
 
+		// Parallel RPC calls to peers
+		var wg sync.WaitGroup
 		for _, peer := range node.Peers {
-			// fmt.Printf("[Results from %s]\n", peer)
-			client, err := rpc.Dial("tcp", peer)
-			if err != nil {
-				fmt.Println("Failed to connect to", peer)
-				continue
-			}
-			defer client.Close()
-			grepArgs := &GrepArgs{Pattern: pattern, File: "sample.log", Options: flags}
-			var reply GrepResponse
-			err = client.Call("RpcService.ExecuteGrep", grepArgs, &reply)
-			if err != nil {
-				fmt.Println("RPC error from", peer, ":", err)
-				continue
-			}
-			fmt.Printf("%s:%s:Number of lines:%d\n", peer, "sample.log", len(reply.Reply))
-			// for _, line := range reply.Reply {
-			// 	fmt.Printf("%s:%d:%s: %s\n", peer, len(reply.Reply), "sample.log", line)
-			// }
+			wg.Add(1)
+			go func(peer string) {
+				defer wg.Done()
+
+				client, err := rpc.Dial("tcp", peer)
+				if err != nil {
+					fmt.Println("Failed to connect to", peer)
+					return
+				}
+				defer client.Close()
+
+				grepArgs := &GrepArgs{Pattern: pattern, File: localFile, Options: flags}
+				var reply GrepResponse
+
+				done := make(chan error, 1)
+				go func() {
+					done <- client.Call("RpcService.ExecuteGrep", grepArgs, &reply)
+				}()
+
+				select {
+				case err := <-done:
+					if err != nil {
+						fmt.Println("RPC error from", peer, ":", err)
+						return
+					}
+					fmt.Printf("%s:%s:Number of lines:%d\n", peer, localFile, len(reply.Reply))
+				case <-time.After(5 * time.Second):
+					fmt.Println("Timeout from", peer)
+				}
+			}(peer)
 		}
+		wg.Wait()
 	}
 }
