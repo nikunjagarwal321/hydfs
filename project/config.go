@@ -91,6 +91,15 @@ func ensureOutputDir() error {
 	return os.MkdirAll("output", 0755)
 }
 
+func shouldSaveLog(flags []string) bool {
+	for _, f := range flags {
+		if f == "-savelog" {
+			return true
+		}
+	}
+	return false
+}
+
 // Save grep output to file
 func saveGrepOutput(timestamp, vmID string, reply []string) error {
 	if err := ensureOutputDir(); err != nil {

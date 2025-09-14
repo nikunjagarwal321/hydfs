@@ -6,129 +6,38 @@ import (
 	"time"
 )
 
-func TestInFrequentPatterns(t *testing.T) {
-	fmt.Print("\n======TestInFrequentPatterns=====\n")
+var vmList = []VMInfo{
+	{ID: "vm1", Address: "localhost:8081"},
+	{ID: "vm2", Address: "localhost:8082"},
+	{ID: "vm3", Address: "localhost:8083"},
+	{ID: "vm4", Address: "localhost:8084"},
+}
+
+func runPatternTest(t *testing.T, pattern string, options []string, label string) {
+	fmt.Printf("\n======Test%s=====\n", label)
+
 	for i := 0; i < 5; i++ {
-		pattern := "delete"
-		options := []string{"-i"}
-
-		// Use vm1 for testing
-		testVMID := "vm1"
-		hostname, _ := getCurrentNodeInfo(testVMID)
-		if hostname == "" {
-			t.Skipf("Skipping test - VM ID %s not found in vmAddressMap", testVMID)
-			return
-		}
 		timestamp := time.Now().Format("20060102_150405")
+		start := time.Now()
 
-		// Measure local grep latency
-		localStart := time.Now()
-		executeLocalGrep(pattern, options, testVMID, timestamp)
-		localLatency := time.Since(localStart)
+		executeParallelGrep(pattern, options, vmList[0].ID, vmList[1:], timestamp) // vmList[0] is main, others are remote
+		latency := time.Since(start)
 
-		// Measure remote grep latency
-		remoteStart := time.Now()
-		executeRemoteGrep(pattern, options, testVMID, timestamp)
-		remoteLatency := time.Since(remoteStart)
-
-		totalLatency := localLatency + remoteLatency
-		fmt.Printf("InFrequent Pattern (error -i): Local=%v, Remote=%v, Total=%v\n",
-			localLatency, remoteLatency, totalLatency)
+		fmt.Printf("%s Pattern: Iteration %d, Pattern=%s, Options=%v, Latency=%v\n",
+			label, i+1, pattern, options, latency)
 	}
+}
+
+func TestInFrequentPatterns(t *testing.T) {
+	runPatternTest(t, "delete", []string{"-i"}, "InFrequent")
 }
 
 func TestFrequentPatterns(t *testing.T) {
-	fmt.Print("\n======TestFrequentPatterns=====\n")
-	for i := 0; i < 5; i++ {
-		pattern := "get"
-		options := []string{"-i"}
-
-		// Use vm1 for testing
-		testVMID := "vm1"
-		hostname, _ := getCurrentNodeInfo(testVMID)
-		if hostname == "" {
-			t.Skipf("Skipping test - VM ID %s not found in vmAddressMap", testVMID)
-			return
-		}
-		timestamp := time.Now().Format("20060102_150405")
-
-		// Measure local grep latency
-		localStart := time.Now()
-		executeLocalGrep(pattern, options, testVMID, timestamp)
-		localLatency := time.Since(localStart)
-
-		// Measure remote grep latency
-		remoteStart := time.Now()
-		executeRemoteGrep(pattern, options, testVMID, timestamp)
-		remoteLatency := time.Since(remoteStart)
-
-		totalLatency := localLatency + remoteLatency
-		fmt.Printf("Frequent Pattern (info -i): Local=%v, Remote=%v, Total=%v\n",
-			localLatency, remoteLatency, totalLatency)
-	}
+	runPatternTest(t, "get", []string{"-i"}, "Frequent")
 }
 
 func TestSomewhatFrequentPatterns(t *testing.T) {
-	fmt.Print("\n======TestSomewhatFrequentPatterns=====\n")
-	for i := 0; i < 5; i++ {
-		pattern := "put"
-		options := []string{"-i"}
-
-		// Use vm1 for testing
-		testVMID := "vm1"
-		hostname, _ := getCurrentNodeInfo(testVMID)
-		if hostname == "" {
-			t.Skipf("Skipping test - VM ID %s not found in vmAddressMap", testVMID)
-			return
-		}
-		timestamp := time.Now().Format("20060102_150405")
-
-		// Measure local grep latency
-		localStart := time.Now()
-
-		executeLocalGrep(pattern, options, testVMID, timestamp)
-		localLatency := time.Since(localStart)
-
-		// Measure remote grep latency
-		remoteStart := time.Now()
-
-		executeRemoteGrep(pattern, options, testVMID, timestamp)
-		remoteLatency := time.Since(remoteStart)
-
-		totalLatency := localLatency + remoteLatency
-		fmt.Printf("Somewhat Frequent Pattern (debug -i): Local=%v, Remote=%v, Total=%v\n",
-			localLatency, remoteLatency, totalLatency)
-	}
-}
-
-func TestGrepOptions(t *testing.T) {
-	fmt.Print("\n======TestGrepOptions=====\n")
-
-	pattern := "GET"
-	options := []string{"-c"}
-
-	// Use vm1 for testing
-	testVMID := "vm1"
-	hostname, _ := getCurrentNodeInfo(testVMID)
-	if hostname == "" {
-		t.Skipf("Skipping test - VM ID %s not found in vmAddressMap", testVMID)
-		return
-	}
-	timestamp := time.Now().Format("20060102_150405")
-	// Measure local grep latency
-	localStart := time.Now()
-	executeLocalGrep(pattern, options, testVMID, timestamp)
-	localLatency := time.Since(localStart)
-
-	// Measure remote grep latency
-	remoteStart := time.Now()
-
-	executeRemoteGrep(pattern, options, testVMID, timestamp)
-	remoteLatency := time.Since(remoteStart)
-
-	totalLatency := localLatency + remoteLatency
-	fmt.Printf("Grep Options (INFO -c): Local=%v, Remote=%v, Total=%v\n",
-		localLatency, remoteLatency, totalLatency)
+	runPatternTest(t, "put", []string{"-i"}, "SomewhatFrequent")
 }
 
 func TestLogGeneration(t *testing.T) {

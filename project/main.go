@@ -94,8 +94,10 @@ func executeLocalGrep(pattern string, flags []string, vmID string, timestamp str
 	fmt.Printf("Number of lines from local:%d\n", len(localLines))
 
 	// Save output to file
-	if saveErr := saveGrepOutput(timestamp, vmID, localLines); saveErr != nil {
-		fmt.Printf("Warning: Failed to save local output: %v\n", saveErr)
+	if shouldSaveLog(flags) {
+		if saveErr := saveGrepOutput(timestamp, vmID, localLines); saveErr != nil {
+			fmt.Printf("Warning: Failed to save local output: %v\n", saveErr)
+		}
 	}
 
 	return len(localLines)
@@ -103,10 +105,9 @@ func executeLocalGrep(pattern string, flags []string, vmID string, timestamp str
 
 // Runs the remote grep on all other servers
 // Returns the total number of matching lines found across all remote servers
-func executeRemoteGrep(pattern string, flags []string, vmID string, timestamp string) int {
+func executeRemoteGrep(pattern string, flags []string, otherVMs []VMInfo, timestamp string) int {
 	var wg sync.WaitGroup
 	var totalRemoteLines int64 //for atomic operations
-	otherVMs := getAllOtherVMs(vmID)
 
 	for _, vm := range otherVMs {
 		wg.Add(1)
@@ -139,7 +140,9 @@ func executeRemoteGrep(pattern string, flags []string, vmID string, timestamp st
 				fmt.Printf("Number of lines from %s::%d\n", vmInfo.Address, len(reply.Reply))
 
 				// Save output to file
-				savePeerOutput(vmInfo.ID, timestamp, vmInfo.Address, reply.Reply)
+				if shouldSaveLog(flags) {
+					savePeerOutput(vmInfo.ID, timestamp, vmInfo.Address, reply.Reply)
+				}
 
 				// Atomically add to total count
 				atomic.AddInt64(&totalRemoteLines, int64(len(reply.Reply)))
@@ -152,6 +155,17 @@ func executeRemoteGrep(pattern string, flags []string, vmID string, timestamp st
 	wg.Wait()
 
 	return int(totalRemoteLines)
+}
+
+// Execute local and remote grep concurrently
+func executeParallelGrep(pattern string, flags []string, vmID string, vmList []VMInfo, timestamp string) int {
+	localCh := make(chan int)
+	remoteCh := make(chan int)
+
+	go func() { localCh <- executeLocalGrep(pattern, flags, vmID, timestamp) }()
+	go func() { remoteCh <- executeRemoteGrep(pattern, flags, vmList, timestamp) }()
+
+	return <-localCh + <-remoteCh
 }
 
 // Runs the server chat in interactive mode. Users can enter patterns and flags multiple times for grep.
@@ -169,15 +183,9 @@ func runInteractiveMode(vmID string) {
 		timestamp := time.Now().Format("20060102_150405")
 
 		fmt.Printf("Filename timestamp:%s\n", timestamp)
-
-		// Execute local grep and get line count
-		localLineCount := executeLocalGrep(pattern, flags, vmID, timestamp)
-
-		// Execute remote grep and get total remote line count
-		remoteLineCount := executeRemoteGrep(pattern, flags, vmID, timestamp)
-
-		// Calculate and display total
-		totalLineCount := localLineCount + remoteLineCount
+		vmList := getAllOtherVMs(vmID)
+		// Execute grep on all servers (local and remote) simultaneously
+		totalLineCount := executeParallelGrep(pattern, flags, vmID, vmList, timestamp)
 
 		fmt.Printf("Total lines found across all servers: %d\n", totalLineCount)
 	}
