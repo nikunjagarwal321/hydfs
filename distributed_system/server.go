@@ -49,8 +49,12 @@ func (s *Server) Start() error {
 	return s.StartRPCServer()
 }
 
-// Checks for suspicion nodes.
+// Checks for suspicion nodes (only for gossip protocol).
 func (s *Server) backgroundCheckerRPC(interval, suspicionTimeout, deadTimeout time.Duration) {
+	if Config.Protocol != GossipProtocol {
+		return
+	}
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -72,8 +76,8 @@ func (s *Server) sendTimelyMessagesAsPerProtocol(interval time.Duration) {
 		// Send gossip if using gossip protocol
 		if Config.Protocol == GossipProtocol {
 			s.gossipSend()
+		} else if Config.Protocol == SwimProtocol {
+			startSwim()
 		}
-
-		// TODO : Add a new SWIM Protocol here
 	}
 }

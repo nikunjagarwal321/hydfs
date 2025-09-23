@@ -31,7 +31,7 @@ var Config = struct {
 	AllNodes       []string
 }{
 	IntroducerAddr: "127.0.0.1:5000",
-	Protocol:       GossipProtocol,
+	Protocol:       SwimProtocol,
 	GossipFanout:   3,          // Number of random nodes to gossip to
 	AllNodes:       []string{}, // Will be populated dynamically
 }
