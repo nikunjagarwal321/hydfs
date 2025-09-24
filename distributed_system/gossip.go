@@ -10,7 +10,6 @@ import (
 type GossipMessage struct {
 	SenderAddress  string   `json:"sender_address"`
 	MembershipList []Member `json:"membership_list"`
-	SuspectedNodes []string `json:"suspected_nodes"`
 }
 
 // Global server instance (will be set in main)
@@ -47,18 +46,14 @@ func (s *Server) gossipSend() {
 		return // No nodes to gossip to
 	}
 
-	suspected := []Member{}
 	membersList := []Member{}
 	for _, m := range snapshot {
 		membersList = append(membersList, m)
-		if m.Status == StatusSuspect {
-			suspected = append(suspected, m)
-		}
 	}
 
 	for _, node := range nodes {
 		go func(nodeAddr string) {
-			resp, err := CallGossip(nodeAddr, s.ID(), membersList, suspected)
+			resp, err := CallGossip(nodeAddr, s.ID(), membersList)
 			if err != nil {
 				fmt.Printf("Failed to send gossip to %s: %v\n", nodeAddr, err)
 			} else {
@@ -70,7 +65,7 @@ func (s *Server) gossipSend() {
 
 // mergeMembership merges the received membership list with local membership
 // TODO: Verify the logic for Gossip and SWIM and decouple both the merge logic
-func mergeMembership(server *Server, receivedMembers []Member, suspectedNodes []Member) {
+func mergeMembership(server *Server, receivedMembers []Member) {
 	localSnapshot := server.Members.Snapshot()
 
 	for _, receivedMember := range receivedMembers {
@@ -84,22 +79,44 @@ func mergeMembership(server *Server, receivedMembers []Member, suspectedNodes []
 			continue
 		}
 
-		// Member exists, check which version is more recent
 		shouldUpdate := false
 
-		// Rule 1: Higher incarnation number wins
-		if receivedMember.Incarnation > localMember.Incarnation {
+		// Rule 1: Dead always wins (but don't update if both are already dead)
+		if receivedMember.Status == StatusDead && localMember.Status != StatusDead {
 			shouldUpdate = true
-		} else if receivedMember.Incarnation == localMember.Incarnation {
-			// Rule 2: If incarnations are equal, higher heartbeat wins
-			if receivedMember.Heartbeat > localMember.Heartbeat {
+		} else if localMember.Status == StatusDead {
+			shouldUpdate = false
+		} else {
+			// Rule 2: Higher incarnation wins
+			if receivedMember.Incarnation > localMember.Incarnation {
 				shouldUpdate = true
-			} else if receivedMember.Heartbeat == localMember.Heartbeat {
-				// Rule 3: If heartbeats are equal, prefer alive over suspect, suspect over dead
-				localPriority := getStatusPriority(localMember.Status)
-				receivedPriority := getStatusPriority(receivedMember.Status)
-				if receivedPriority > localPriority {
-					shouldUpdate = true
+			} else if receivedMember.Incarnation == localMember.Incarnation {
+				// Special case: If we receive information about ourselves being marked as suspect
+				// but we are actually alive, increment our incarnation number
+				if receivedMember.Address == server.Addr &&
+					receivedMember.Status == StatusSuspect &&
+					localMember.Status == StatusAlive {
+					// We are alive but others think we are suspect - increment incarnation
+					server.IncarnationNumber++
+					localMember.Incarnation = server.IncarnationNumber
+					localMember.LastUpdated = time.Now()
+					server.Members.AddOrUpdate(localMember)
+					fmt.Printf("Incremented incarnation to %d - I'm alive but was marked as suspect\n",
+						server.IncarnationNumber)
+					continue
+				}
+
+				if Config.Protocol == SwimProtocol {
+					// SWIM: ignore heartbeat, use status priority
+					shouldUpdate = compareStatus(receivedMember.Status, localMember.Status)
+				} else {
+					// Gossip: higher heartbeat wins
+					if receivedMember.Heartbeat > localMember.Heartbeat {
+						shouldUpdate = true
+					} else if receivedMember.Heartbeat == localMember.Heartbeat {
+						// fall back to status priority
+						shouldUpdate = compareStatus(receivedMember.Status, localMember.Status)
+					}
 				}
 			}
 		}
@@ -115,28 +132,21 @@ func mergeMembership(server *Server, receivedMembers []Member, suspectedNodes []
 		}
 	}
 
-	// Handle suspected nodes separately if needed
-	for _, suspectedAddr := range suspectedNodes {
-		if localMember, exists := localSnapshot[suspectedAddr.ID()]; exists {
-			if localMember.Status == StatusAlive {
-				// Only mark as suspect if currently alive
-				localMember.Status = StatusSuspect
-				localMember.LastUpdated = time.Now()
-				server.Members.AddOrUpdate(localMember)
-				fmt.Printf("Marked member as suspected: %s\n", suspectedAddr)
-			}
-		}
-	}
 }
 
-// getStatusPriority returns priority for status comparison (higher is better)
+// compareStatus returns true if received should replace local
+func compareStatus(received, local Status) bool {
+	return getStatusPriority(received) > getStatusPriority(local)
+}
+
+// getStatusPriority: Dead > Suspect > Alive
 func getStatusPriority(status Status) int {
 	switch status {
-	case StatusAlive:
+	case StatusDead:
 		return 3
 	case StatusSuspect:
 		return 2
-	case StatusDead:
+	case StatusAlive:
 		return 1
 	default:
 		return 0

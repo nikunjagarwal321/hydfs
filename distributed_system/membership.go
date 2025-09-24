@@ -21,6 +21,12 @@ func (ml *MembershipList) AddOrUpdate(member Member) {
 	ml.nodes[member.ID()] = member
 }
 
+func (ml *MembershipList) Remove(nodeID string) {
+	ml.mu.Lock()
+	defer ml.mu.Unlock()
+	delete(ml.nodes, nodeID)
+}
+
 func (ml *MembershipList) MarkSuspectIfNeeded(suspicionTimeout, deadTimeout time.Duration) bool {
 	ml.mu.Lock()
 	defer ml.mu.Unlock()
@@ -75,4 +81,18 @@ func (ml *MembershipList) Print() {
 		fmt.Printf("Node: %s, Status: %s, HB: %d\n", id, m.Status, m.Heartbeat)
 	}
 	fmt.Println("-------------------------")
+}
+
+// GetSuspectedNodes returns all suspected nodes from the membership list
+func (ml *MembershipList) GetSuspectedNodes() []Member {
+	ml.mu.Lock()
+	defer ml.mu.Unlock()
+
+	var suspectedNodes []Member
+	for _, member := range ml.nodes {
+		if member.Status == StatusSuspect {
+			suspectedNodes = append(suspectedNodes, member)
+		}
+	}
+	return suspectedNodes
 }

@@ -26,7 +26,6 @@ type JoinResponse struct {
 type GossipRequest struct {
 	SenderID       string   `json:"sender_address"`
 	MembershipList []Member `json:"membership_list"`
-	SuspectedNodes []Member `json:"suspected_nodes"`
 }
 
 type GossipResponse struct {
@@ -34,15 +33,17 @@ type GossipResponse struct {
 }
 
 type PingRequest struct {
-	SenderID      string `json:"sender_address"`
-	TargetAddress string `json:"target_address"`
-	Sequence      uint64 `json:"sequence"`
+	SenderID       string            `json:"sender_address"`
+	TargetAddress  string            `json:"target_address"`
+	Sequence       uint64            `json:"sequence"`
+	MembershipList map[string]Member `json:"membership_list"`
 }
 
-type PingResponse struct { // CAN BE TAKEN AS ACK RESPONSE??
-	Success  bool   `json:"success"`
-	SenderID string `json:"sender_address"`
-	Sequence uint64 `json:"sequence"`
+type Ack struct { // CAN BE TAKEN AS ACK RESPONSE??
+	Success        bool              `json:"success"`
+	SenderID       string            `json:"sender_address"`
+	Sequence       uint64            `json:"sequence"`
+	MembershipList map[string]Member `json:"membership_list"`
 }
 
 // RPC Methods
@@ -66,7 +67,7 @@ func (ds *DistributedSystemService) Join(req *JoinRequest, resp *JoinResponse) e
 // Gossip handles gossip protocol messages
 func (ds *DistributedSystemService) Gossip(req *GossipRequest, resp *GossipResponse) error {
 	if globalServer != nil {
-		mergeMembership(globalServer, req.MembershipList, req.SuspectedNodes)
+		mergeMembership(globalServer, req.MembershipList)
 		resp.Success = true
 	} else {
 		resp.Success = false
@@ -75,10 +76,21 @@ func (ds *DistributedSystemService) Gossip(req *GossipRequest, resp *GossipRespo
 }
 
 // Ping handles SWIM ping messages (for future SWIM implementation)
-func (ds *DistributedSystemService) Ping(req *PingRequest, resp *PingResponse) error {
+func (ds *DistributedSystemService) Ping(req *PingRequest, resp *Ack) error {
+	fmt.Printf("SWIM: Received PING from %s (sequence: %d)\n", req.SenderID, req.Sequence)
+
+	// Merge received membership list
+	if globalServer != nil {
+		members := convertMapToSlice(req.MembershipList)
+		mergeMembership(globalServer, members)
+	}
+
 	resp.Success = true
 	resp.SenderID = ds.server.ID()
 	resp.Sequence = req.Sequence
+	resp.MembershipList = ds.server.Members.Snapshot()
+
+	fmt.Printf("SWIM: Sending ACK to %s (sequence: %d)\n", req.SenderID, req.Sequence)
 	return nil
 }
 
@@ -106,11 +118,10 @@ func CallJoin(address string, member Member) (*JoinResponse, error) {
 }
 
 // CallGossip makes an RPC call to send gossip
-func CallGossip(address string, senderId string, membersList []Member, suspectedNodes []Member) (*GossipResponse, error) {
+func CallGossip(address string, senderId string, membersList []Member) (*GossipResponse, error) {
 	req := &GossipRequest{
 		SenderID:       senderId,
 		MembershipList: membersList,
-		SuspectedNodes: suspectedNodes,
 	}
 	var resp GossipResponse
 	err := makeRPCCall(address, "Gossip", req, &resp)
@@ -118,15 +129,42 @@ func CallGossip(address string, senderId string, membersList []Member, suspected
 }
 
 // CallPing makes an RPC call to ping a node (for SWIM)
-func CallPing(address string, senderAddr string, targetAddr string, sequence uint64) (*PingResponse, error) {
-	req := &PingRequest{
-		SenderID:      senderAddr,
-		TargetAddress: targetAddr,
-		Sequence:      sequence,
+func CallPing(address string, senderAddr string, targetAddr string, sequence uint64) (*Ack, error) {
+	// Get membership list from global server
+	var membershipList map[string]Member
+	if globalServer != nil {
+		membershipList = globalServer.Members.Snapshot()
 	}
-	var resp PingResponse
+
+	req := &PingRequest{
+		SenderID:       senderAddr,
+		TargetAddress:  targetAddr,
+		Sequence:       sequence,
+		MembershipList: membershipList,
+	}
+	var resp Ack
 	err := makeRPCCall(address, "Ping", req, &resp)
+
+	if err == nil {
+		fmt.Printf("SWIM: Received ACK from %s (sequence: %d)\n", address, sequence)
+	}
+
+	// Merge received membership list
+	if err == nil && globalServer != nil {
+		members := convertMapToSlice(resp.MembershipList)
+		mergeMembership(globalServer, members)
+	}
+
 	return &resp, err
+}
+
+// convertMapToSlice converts membership map to slice
+func convertMapToSlice(membershipMap map[string]Member) []Member {
+	var members []Member
+	for _, member := range membershipMap {
+		members = append(members, member)
+	}
+	return members
 }
 
 // makeRPCCall is a generic RPC call function over UDP
@@ -136,6 +174,9 @@ func makeRPCCall(address string, method string, params interface{}, result inter
 		return fmt.Errorf("dial error: %w", err)
 	}
 	defer conn.Close()
+
+	// Set timeout for the connection
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 
 	// Create RPC message
 	rpcMsg := RPCMessage{
@@ -263,7 +304,7 @@ func (s *Server) notifyIntroducer() error {
 		return err
 	} else {
 		fmt.Printf("Join response: %+v\n", resp)
-		mergeMembership(s, resp.MembershipList, nil)
+		mergeMembership(s, resp.MembershipList)
 		return nil
 	}
 }
@@ -325,7 +366,7 @@ func (s *Server) handleRPCRequest(conn *net.UDPConn, clientAddr *net.UDPAddr, da
 			s.sendRPCError(conn, clientAddr, rpcMsg.ID, fmt.Sprintf("invalid params: %v", err))
 			return
 		}
-		var resp PingResponse
+		var resp Ack
 		rpcErr = service.Ping(&req, &resp)
 		result = resp
 
