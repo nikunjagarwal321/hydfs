@@ -139,6 +139,7 @@ func mergeMembership(server *Server, receivedMembers []Member) {
 		if Config.Suspicion == Suspect && receivedMember.Address == server.Addr {
 			if receivedMember.Status == StatusSuspect && localMember.Status == StatusAlive {
 				// We are alive but others think we are suspect - increment incarnation
+				// TODO: Dont update everytime. Update only if local incarnation is less or equal
 				server.IncarnationNumber++
 				localMember.Incarnation = server.IncarnationNumber
 				localMember.LastUpdated = time.Now()
