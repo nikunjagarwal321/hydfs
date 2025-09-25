@@ -1,98 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net"
+	"os"
+	"strings"
 	"time"
 )
-
-// RPC Service definitions
-type DistributedSystemService struct {
-	server *Server
-}
-
-// Request/Response types for RPC calls
-type JoinRequest struct {
-	Member Member `json:"member"`
-}
-
-type JoinResponse struct {
-	Success        bool     `json:"success"`
-	Message        string   `json:"message"`
-	MembershipList []Member `json:"membership_list"`
-}
-
-type GossipRequest struct {
-	SenderID       string   `json:"sender_address"`
-	MembershipList []Member `json:"membership_list"`
-}
-
-type GossipResponse struct {
-	Success bool `json:"success"`
-}
-
-type PingRequest struct {
-	SenderID       string            `json:"sender_address"`
-	TargetAddress  string            `json:"target_address"`
-	Sequence       uint64            `json:"sequence"`
-	MembershipList map[string]Member `json:"membership_list"`
-}
-
-type Ack struct { // CAN BE TAKEN AS ACK RESPONSE??
-	Success        bool              `json:"success"`
-	SenderID       string            `json:"sender_address"`
-	Sequence       uint64            `json:"sequence"`
-	MembershipList map[string]Member `json:"membership_list"`
-}
-
-// RPC Methods
-
-// Join handles new member joining
-func (ds *DistributedSystemService) Join(req *JoinRequest, resp *JoinResponse) error {
-	if ds.server.IsIntroducer {
-		req.Member.LastUpdated = time.Now()
-		ds.server.Members.AddOrUpdate(req.Member)
-		resp.Success = true
-		resp.Message = "Successfully joined the cluster"
-		// TODO: Fix this to respond with members
-		resp.MembershipList = ds.server.Members.GetAll()
-		return nil
-	}
-	resp.Success = false
-	resp.Message = "Not an introducer"
-	return nil
-}
-
-// Gossip handles gossip protocol messages
-func (ds *DistributedSystemService) Gossip(req *GossipRequest, resp *GossipResponse) error {
-	if globalServer != nil {
-		mergeMembership(globalServer, req.MembershipList)
-		resp.Success = true
-	} else {
-		resp.Success = false
-	}
-	return nil
-}
-
-// Ping handles SWIM ping messages (for future SWIM implementation)
-func (ds *DistributedSystemService) Ping(req *PingRequest, resp *Ack) error {
-	fmt.Printf("SWIM: Received PING from %s (sequence: %d)\n", req.SenderID, req.Sequence)
-
-	// Merge received membership list
-	if globalServer != nil {
-		members := convertMapToSlice(req.MembershipList)
-		mergeMembership(globalServer, members)
-	}
-
-	resp.Success = true
-	resp.SenderID = ds.server.ID()
-	resp.Sequence = req.Sequence
-	resp.MembershipList = ds.server.Members.Snapshot()
-
-	fmt.Printf("SWIM: Sending ACK to %s (sequence: %d)\n", req.SenderID, req.Sequence)
-	return nil
-}
 
 // RPC Message wrapper
 type RPCMessage struct {
@@ -105,66 +22,6 @@ type RPCResponse struct {
 	Result interface{} `json:"result"`
 	Error  string      `json:"error,omitempty"`
 	ID     uint64      `json:"id"`
-}
-
-// RPC Client helper functions
-
-// CallJoin makes an RPC call to join the cluster
-func CallJoin(address string, member Member) (*JoinResponse, error) {
-	req := &JoinRequest{Member: member}
-	var resp JoinResponse
-	err := makeRPCCall(address, "Join", req, &resp)
-	return &resp, err
-}
-
-// CallGossip makes an RPC call to send gossip
-func CallGossip(address string, senderId string, membersList []Member) (*GossipResponse, error) {
-	req := &GossipRequest{
-		SenderID:       senderId,
-		MembershipList: membersList,
-	}
-	var resp GossipResponse
-	err := makeRPCCall(address, "Gossip", req, &resp)
-	return &resp, err
-}
-
-// CallPing makes an RPC call to ping a node (for SWIM)
-func CallPing(address string, senderAddr string, targetAddr string, sequence uint64) (*Ack, error) {
-	// Get membership list from global server
-	var membershipList map[string]Member
-	if globalServer != nil {
-		membershipList = globalServer.Members.Snapshot()
-	}
-
-	req := &PingRequest{
-		SenderID:       senderAddr,
-		TargetAddress:  targetAddr,
-		Sequence:       sequence,
-		MembershipList: membershipList,
-	}
-	var resp Ack
-	err := makeRPCCall(address, "Ping", req, &resp)
-
-	if err == nil {
-		fmt.Printf("SWIM: Received ACK from %s (sequence: %d)\n", address, sequence)
-	}
-
-	// Merge received membership list
-	if err == nil && globalServer != nil {
-		members := convertMapToSlice(resp.MembershipList)
-		mergeMembership(globalServer, members)
-	}
-
-	return &resp, err
-}
-
-// convertMapToSlice converts membership map to slice
-func convertMapToSlice(membershipMap map[string]Member) []Member {
-	var members []Member
-	for _, member := range membershipMap {
-		members = append(members, member)
-	}
-	return members
 }
 
 // makeRPCCall is a generic RPC call function over UDP
@@ -256,11 +113,129 @@ func (s *Server) StartRPCServer() error {
 	}
 
 	// Start background processes
+	cmdChan := make(chan string)
+
 	go s.listenForMessages(conn)
 	go s.sendTimelyMessagesAsPerProtocol(gossipOrSwimPingInterval)
 	go s.increaseHeartbeat(heartbeatInterval)
 	go s.backgroundCheckerRPC(suspicionCheckTimeout, suspicionTimeout, deadTimeout)
-	select {}
+	go s.startCLI(cmdChan)
+
+	// main loop processes commands
+	for cmd := range cmdChan {
+		s.handleCommand(cmd)
+	}
+	return nil
+}
+
+func (s *Server) startCLI(cmdChan chan<- string) {
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		cmdChan <- scanner.Text()
+	}
+	if err := scanner.Err(); err != nil {
+		fmt.Println("Error reading input:", err)
+	}
+}
+
+func (s *Server) handleCommand(cmd string) {
+	// Split command into parts at the beginning
+	parts := strings.Fields(strings.TrimSpace(cmd))
+	if len(parts) == 0 {
+		return
+	}
+
+	command := parts[0]
+
+	switch command {
+	case "list_mem":
+		s.Members.Print()
+	case "list_self":
+		fmt.Printf("Self ID: %s\n", s.ID())
+	case "leave":
+		s.leaveGroup()
+	case "display_suspects":
+		s.Members.PrintSuspectedNodes()
+	case "display_protocol":
+		printCurrentProtocol()
+	case "switch":
+		if len(parts) != 3 {
+			fmt.Printf("Invalid switch command format. Expected: switch <protocol> <suspicion>\n")
+			return
+		}
+		s.handleSwitch(parts[1], parts[2])
+	case "drop":
+		if len(parts) != 2 {
+			fmt.Printf("Invalid drop command format. Expected: drop <percentage>\n")
+			return
+		}
+		SetMessageDropRate(parts[1])
+	default:
+		fmt.Println("Unknown command:", command)
+	}
+}
+
+func (s *Server) leaveGroup() {
+	fmt.Printf("Initiating graceful leave from the group...\n")
+
+	// Get current membership snapshot
+	snapshot := s.Members.Snapshot()
+	selfMember, exists := snapshot[s.ID()]
+
+	if !exists {
+		fmt.Printf("Error: Self not found in membership list\n")
+		return
+	}
+
+	// Mark self as voluntarily leaving
+	selfMember.MarkVoluntaryLeave()
+	selfMember.Incarnation = s.IncarnationNumber // Use current incarnation
+	s.Members.AddOrUpdate(selfMember)
+
+	fmt.Printf("Marked self as voluntarily leaving: %s\n", s.ID())
+}
+
+func (s *Server) handleSwitch(protocolStr, suspicionStr string) {
+	protocolStr = strings.ToLower(protocolStr)
+	suspicionStr = strings.ToLower(suspicionStr)
+
+	protocol, ok := ProtocolMap[protocolStr]
+	if !ok {
+		fmt.Printf("Invalid protocol '%s'\n", protocolStr)
+		return
+	}
+
+	suspicion, ok := SuspicionMap[suspicionStr]
+	if !ok {
+		fmt.Printf("Invalid suspicion type '%s'\n", suspicionStr)
+		return
+	}
+
+	SwitchProtocol(protocol, suspicion)
+
+	// Broadcast protocol switch to all other nodes in the membership list
+	snapshot := s.Members.Snapshot()
+
+	for _, member := range snapshot {
+		// Skip self
+		if member.Address != s.Addr {
+			go func(nodeAddr string) {
+				resp, err := CallProtocolSwitch(nodeAddr, s.ID(), protocol, suspicion)
+				if err != nil {
+					fmt.Printf("Failed to send protocol switch to %s: %v\n", nodeAddr, err)
+				} else {
+					fmt.Printf("Sent protocol switch to %s, success: %v\n", nodeAddr, resp.Success)
+				}
+			}(member.Address)
+		}
+	}
+
+	fmt.Printf("Protocol switch broadcast completed\n")
+}
+
+func printCurrentProtocol() {
+	fmt.Printf("Current Protocol: %s | Suspicion: %s | Message Drop Rate: %.2f%%\n",
+		Config.Protocol, Config.Suspicion, Config.MessageDropRate*100)
 }
 
 func (s *Server) increaseHeartbeat(heartbeatInterval time.Duration) {
@@ -268,7 +243,11 @@ func (s *Server) increaseHeartbeat(heartbeatInterval time.Duration) {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		// Increment the server's heartbeat counter
+		// Increment the server's heartbeat counter only for PingAck
+		if Config.Protocol == PingAckProtocol {
+			continue
+		}
+
 		s.HeartbeatCounter++
 
 		// Create updated member info for self
@@ -284,7 +263,6 @@ func (s *Server) increaseHeartbeat(heartbeatInterval time.Duration) {
 		// Update self in the membership list
 		s.Members.AddOrUpdate(selfMember)
 
-		// fmt.Printf("[%s] Heartbeat increased to %d\n", s.ID(), s.HeartbeatCounter)
 	}
 }
 
@@ -303,7 +281,7 @@ func (s *Server) notifyIntroducer() error {
 		fmt.Printf("Failed to join cluster: %v\n", err)
 		return err
 	} else {
-		fmt.Printf("Join response: %+v\n", resp)
+		fmt.Printf("Join response message: %+v\n", resp.Message)
 		mergeMembership(s, resp.MembershipList)
 		return nil
 	}
@@ -321,12 +299,22 @@ func (s *Server) listenForMessages(conn *net.UDPConn) {
 			continue
 		}
 
+		// Implement message drop simulation for testing network failures
+		if Config.MessageDropRate > 0.0 {
+			// Generate random number between 0.0 and 1.0
+			if rand.Float64() < Config.MessageDropRate {
+				// Drop the message - simulate network packet loss
+				fmt.Printf("DROPPED message from %s (drop rate: %.2f%%)\n",
+					clientAddr.String(), Config.MessageDropRate*100)
+				continue
+			}
+		}
+
 		go s.handleRPCRequest(conn, clientAddr, buffer[:n], service)
 	}
 }
 
 // handleRPCRequest processes incoming RPC requests
-// ADD DIFFERENT TYPES OF REQUEST/RESPONSE MESSAGES HERE. FOR SWIM AS WELL --> PING, ACK, SUSPECT, SUSPECT-RESP
 func (s *Server) handleRPCRequest(conn *net.UDPConn, clientAddr *net.UDPAddr, data []byte, service *DistributedSystemService) {
 	var rpcMsg RPCMessage
 	err := json.Unmarshal(data, &rpcMsg)
@@ -368,6 +356,16 @@ func (s *Server) handleRPCRequest(conn *net.UDPConn, clientAddr *net.UDPAddr, da
 		}
 		var resp Ack
 		rpcErr = service.Ping(&req, &resp)
+		result = resp
+
+	case "ProtocolSwitch":
+		var req ProtocolSwitchRequest
+		if err := s.convertParams(rpcMsg.Params, &req); err != nil {
+			s.sendRPCError(conn, clientAddr, rpcMsg.ID, fmt.Sprintf("invalid params: %v", err))
+			return
+		}
+		var resp ProtocolSwitchResponse
+		rpcErr = service.ProtocolSwitch(&req, &resp)
 		result = resp
 
 	default:

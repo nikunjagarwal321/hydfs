@@ -8,9 +8,10 @@ import (
 type Status string
 
 const (
-	StatusAlive   Status = "alive"
-	StatusSuspect Status = "suspect"
-	StatusDead    Status = "dead"
+	StatusAlive          Status = "alive"
+	StatusSuspect        Status = "suspect"
+	StatusDead           Status = "dead"
+	StatusVoluntaryLeave Status = "voluntary_leave"
 )
 
 // TO GET A MEMBER, ALWAYS USE ID
@@ -34,6 +35,11 @@ func (m *Member) MarkSuspect() {
 
 func (m *Member) MarkDead() {
 	m.Status = StatusDead
+	m.LastUpdated = time.Now()
+}
+
+func (m *Member) MarkVoluntaryLeave() {
+	m.Status = StatusVoluntaryLeave
 	m.LastUpdated = time.Now()
 }
 

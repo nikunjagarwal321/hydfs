@@ -21,7 +21,6 @@ func (s *Server) ID() string {
 
 // IF ANY GLOBAL PROPERTY IS RELATED TO SERVER, SET IT HERE
 func NewServer(addr, introducerAddr string, isIntroducer bool) *Server {
-	// TODO: See later on if we need to modify the structure.
 	// Adding itself in the membership based on the example in class
 	membershipList := NewMembershipList()
 	member := Member{
@@ -49,12 +48,9 @@ func (s *Server) Start() error {
 	return s.StartRPCServer()
 }
 
-// Checks for suspicion nodes (only for gossip protocol).
+// Checks for suspicion nodes
 func (s *Server) backgroundCheckerRPC(interval, suspicionTimeout, deadTimeout time.Duration) {
-	if Config.Protocol != GossipProtocol {
-		return
-	}
-
+	//  TODO: Only use suspicion when it is enabled
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -73,11 +69,11 @@ func (s *Server) sendTimelyMessagesAsPerProtocol(interval time.Duration) {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		// Send gossip if using gossip protocol
-		if Config.Protocol == GossipProtocol {
-			s.gossipSend()
-		} else if Config.Protocol == SwimProtocol {
-			startSwim()
+		switch Config.Protocol {
+		case GossipProtocol:
+			s.gossipSend(Config.GossipFanout)
+		case PingAckProtocol:
+			s.pingSend(Config.GossipFanout)
 		}
 	}
 }

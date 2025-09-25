@@ -34,6 +34,8 @@ func (ml *MembershipList) MarkSuspectIfNeeded(suspicionTimeout, deadTimeout time
 	changed := false
 	now := time.Now()
 
+	// TODO: Verify this logic
+
 	for id, m := range ml.nodes {
 		elapsed := now.Sub(m.LastUpdated)
 
@@ -77,10 +79,24 @@ func (ml *MembershipList) Print() {
 	defer ml.mu.Unlock()
 
 	fmt.Println("---- Membership List ----")
-	for id, m := range ml.nodes {
-		fmt.Printf("Node: %s, Status: %s, HB: %d\n", id, m.Status, m.Heartbeat)
+	for _, member := range ml.nodes {
+		fmt.Printf("Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.LastUpdated)
 	}
 	fmt.Println("-------------------------")
+}
+
+func (ml *MembershipList) PrintSuspectedNodes() {
+	ml.mu.Lock()
+	defer ml.mu.Unlock()
+
+	fmt.Println("---- Membership List ----")
+	for _, member := range ml.nodes {
+		if member.Status == StatusSuspect {
+			fmt.Printf("Suspected Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.LastUpdated)
+		}
+	}
+	fmt.Println("-------------------------")
+
 }
 
 // GetSuspectedNodes returns all suspected nodes from the membership list
