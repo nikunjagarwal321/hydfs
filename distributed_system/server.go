@@ -48,12 +48,9 @@ func (s *Server) Start() error {
 	return s.StartRPCServer()
 }
 
-// Checks for suspicion nodes (only for gossip protocol).
+// Checks for suspicion nodes
 func (s *Server) backgroundCheckerRPC(interval, suspicionTimeout, deadTimeout time.Duration) {
-	if Config.Protocol != GossipProtocol {
-		return
-	}
-
+	//  TODO: Only use suspicion when it is enabled
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 

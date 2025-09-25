@@ -34,6 +34,8 @@ func (ml *MembershipList) MarkSuspectIfNeeded(suspicionTimeout, deadTimeout time
 	changed := false
 	now := time.Now()
 
+	// TODO: Verify this logic
+
 	for id, m := range ml.nodes {
 		elapsed := now.Sub(m.LastUpdated)
 

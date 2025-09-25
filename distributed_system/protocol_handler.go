@@ -108,10 +108,10 @@ func (s *Server) pingSend(nodeCount int) {
 		go func(nodeAddr string) {
 			resp, err := CallPing(nodeAddr, s.ID(), membersList)
 			if err != nil {
-				fmt.Printf("Failed to send gossip to %s: %v\n", nodeAddr, err)
+				fmt.Printf("Failed to send ping to %s: %v\n", nodeAddr, err)
 			} else {
 				mergeMembership(s, resp.MembershipList)
-				fmt.Printf("Sent gossip to %s\n", nodeAddr)
+				fmt.Printf("Sent ping to %s\n", nodeAddr)
 			}
 		}(node)
 	}
@@ -134,7 +134,7 @@ func mergeMembership(server *Server, receivedMembers []Member) {
 
 		localMember := localSnapshot[receivedMember.ID()]
 
-		// Move this to a diff function
+		// TODO: Move this to a diff function to make more modular
 		// Special case: Handle self-node with suspicion enabled
 		if Config.Suspicion == Suspect && receivedMember.Address == server.Addr {
 			if receivedMember.Status == StatusSuspect && localMember.Status == StatusAlive {
@@ -163,7 +163,6 @@ func mergeMembership(server *Server, receivedMembers []Member) {
 		}
 
 		server.Members.AddOrUpdate(updatedMember)
-		fmt.Printf("Processed member: %s\n", updatedMember.ID())
 
 	}
 
@@ -209,7 +208,7 @@ func handleSuspicionMerge(localMember Member, receivedMember Member) Member {
 				return localMember
 			case PingAckProtocol:
 				// For PingAck: just take received (more recent information)
-				receivedMember.LastUpdated = time.Now()
+				receivedMember.LastUpdated = time.Now() // TODO : CHECK, THIS MIGHT BE CAUSING THE ISSUE
 				return receivedMember
 			}
 		} else {
@@ -237,7 +236,7 @@ func handleNoSuspicionMerge(localMember Member, receivedMember Member) Member {
 	case PingAckProtocol:
 		// TODO : confirm this with prof
 	}
-	receivedMember.LastUpdated = time.Now()
+	receivedMember.LastUpdated = time.Now() // TODO : CHECK, THIS MIGHT BE CAUSING THE ISSUE
 	return receivedMember
 }
 

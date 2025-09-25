@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net"
 	"os"
 	"strings"
@@ -163,6 +164,12 @@ func (s *Server) handleCommand(cmd string) {
 			return
 		}
 		s.handleSwitch(parts[1], parts[2])
+	case "drop":
+		if len(parts) != 2 {
+			fmt.Printf("Invalid drop command format. Expected: drop <percentage>\n")
+			return
+		}
+		SetMessageDropRate(parts[1])
 	default:
 		fmt.Println("Unknown command:", command)
 	}
@@ -227,7 +234,8 @@ func (s *Server) handleSwitch(protocolStr, suspicionStr string) {
 }
 
 func printCurrentProtocol() {
-	fmt.Printf("Current Protocol: %s | Suspicion : %s\n", Config.Protocol, Config.Suspicion)
+	fmt.Printf("Current Protocol: %s | Suspicion: %s | Message Drop Rate: %.2f%%\n",
+		Config.Protocol, Config.Suspicion, Config.MessageDropRate*100)
 }
 
 func (s *Server) increaseHeartbeat(heartbeatInterval time.Duration) {
@@ -235,7 +243,11 @@ func (s *Server) increaseHeartbeat(heartbeatInterval time.Duration) {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		// Increment the server's heartbeat counter
+		// Increment the server's heartbeat counter only for PingAck
+		if Config.Protocol == PingAckProtocol {
+			continue
+		}
+
 		s.HeartbeatCounter++
 
 		// Create updated member info for self
@@ -251,7 +263,6 @@ func (s *Server) increaseHeartbeat(heartbeatInterval time.Duration) {
 		// Update self in the membership list
 		s.Members.AddOrUpdate(selfMember)
 
-		// fmt.Printf("[%s] Heartbeat increased to %d\n", s.ID(), s.HeartbeatCounter)
 	}
 }
 
@@ -270,7 +281,7 @@ func (s *Server) notifyIntroducer() error {
 		fmt.Printf("Failed to join cluster: %v\n", err)
 		return err
 	} else {
-		fmt.Printf("Join response: %+v\n", resp)
+		fmt.Printf("Join response message: %+v\n", resp.Message)
 		mergeMembership(s, resp.MembershipList)
 		return nil
 	}
@@ -286,6 +297,17 @@ func (s *Server) listenForMessages(conn *net.UDPConn) {
 		if err != nil {
 			fmt.Printf("Read error: %v\n", err)
 			continue
+		}
+
+		// Implement message drop simulation for testing network failures
+		if Config.MessageDropRate > 0.0 {
+			// Generate random number between 0.0 and 1.0
+			if rand.Float64() < Config.MessageDropRate {
+				// Drop the message - simulate network packet loss
+				fmt.Printf("DROPPED message from %s (drop rate: %.2f%%)\n",
+					clientAddr.String(), Config.MessageDropRate*100)
+				continue
+			}
 		}
 
 		go s.handleRPCRequest(conn, clientAddr, buffer[:n], service)

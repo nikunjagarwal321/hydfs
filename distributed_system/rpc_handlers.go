@@ -80,7 +80,7 @@ func (ds *DistributedSystemService) Gossip(req *GossipRequest, resp *GossipRespo
 
 // Ping handles SWIM ping messages (for future SWIM implementation)
 func (ds *DistributedSystemService) Ping(req *PingRequest, resp *Ack) error {
-	fmt.Printf("SWIM: Received PING from %s \n", req.SenderID)
+	fmt.Printf("PingAck: Received PING from %s \n", req.SenderID)
 
 	// Merge received membership list
 	if globalServer != nil {
@@ -91,7 +91,6 @@ func (ds *DistributedSystemService) Ping(req *PingRequest, resp *Ack) error {
 	resp.SenderID = ds.server.ID()
 	resp.MembershipList = ds.server.Members.GetAll()
 
-	fmt.Printf("SWIM: Sending ACK to %s\n", req.SenderID)
 	return nil
 }
 

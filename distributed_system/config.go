@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -10,10 +11,10 @@ type ProtocolType string
 type SuspicionType string
 
 var heartbeatInterval = 1 * time.Second
-var suspicionCheckTimeout = 5 * time.Second
-var suspicionTimeout = 10 * time.Second
-var deadTimeout = 20 * time.Second
-var gossipOrSwimPingInterval = 10 * time.Second
+var suspicionCheckTimeout = 3 * time.Second
+var suspicionTimeout = 5 * time.Second
+var deadTimeout = 10 * time.Second
+var gossipOrSwimPingInterval = 1 * time.Second
 
 // Use gossipOrSwimPingInterval and GossipFanout in conjunction
 
@@ -41,20 +42,24 @@ var NodeMap = map[string]string{
 	"vm1": "127.0.0.1:5000",
 	"vm2": "127.0.0.1:5001",
 	"vm3": "127.0.0.1:5002",
+	"vm4": "127.0.0.1:5003",
+	"vm5": "127.0.0.1:5004",
 }
 
 var Config = struct {
-	IntroducerAddr string
-	Protocol       ProtocolType
-	GossipFanout   int
-	AllNodes       []string
-	Suspicion      SuspicionType
+	IntroducerAddr  string
+	Protocol        ProtocolType
+	GossipFanout    int
+	AllNodes        []string
+	Suspicion       SuspicionType
+	MessageDropRate float64 // Percentage of messages to drop (0.0 to 1.0)
 }{
-	IntroducerAddr: "127.0.0.1:5000",
-	Protocol:       GossipProtocol,
-	GossipFanout:   3,          // Number of random nodes to gossip to
-	AllNodes:       []string{}, // Will be populated dynamically
-	Suspicion:      Suspect,    // Enable suspicion mechanism by default
+	IntroducerAddr:  "127.0.0.1:5000",
+	Protocol:        GossipProtocol,
+	GossipFanout:    3,          // Number of random nodes to gossip to
+	AllNodes:        []string{}, // Will be populated dynamically
+	Suspicion:       Suspect,    // Enable suspicion mechanism by default
+	MessageDropRate: 0.0,        // No message drop by default
 }
 
 // SwitchProtocol and ToggleSuspicion allows dynamic protocol and suspicion type switching at runtime
@@ -62,4 +67,22 @@ func SwitchProtocol(newProtocol ProtocolType, newSuspicionType SuspicionType) {
 	Config.Protocol = newProtocol
 	Config.Suspicion = newSuspicionType
 	fmt.Printf("New Configs: {%s, %s}\n", newProtocol, newSuspicionType)
+}
+
+// SetMessageDropRate sets the message drop rate for testing network failures
+func SetMessageDropRate(percentage string) {
+	dropRate, err := strconv.ParseFloat(percentage, 64)
+	if err != nil {
+		fmt.Printf("Invalid percentage: %s\n", percentage)
+		return
+	}
+
+	if dropRate < 0.0 {
+		dropRate = 0.0
+	}
+	if dropRate > 1.0 {
+		dropRate = 1.0
+	}
+	Config.MessageDropRate = dropRate
+	fmt.Printf("Message drop rate set to: %.2f%%\n", dropRate*100)
 }
