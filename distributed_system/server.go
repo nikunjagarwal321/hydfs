@@ -49,13 +49,13 @@ func (s *Server) Start() error {
 }
 
 // Checks for suspicion nodes
-func (s *Server) backgroundCheckerRPC(interval, suspicionTimeout, deadTimeout time.Duration) {
+func (s *Server) backgroundCheckerRPC(interval, suspicionTimeout, deadTimeout, cleanUpTimeout time.Duration) {
 	//  TODO: Only use suspicion when it is enabled
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		changed := s.Members.MarkSuspectIfNeeded(suspicionTimeout, deadTimeout)
+		changed := s.Members.MarkSuspectIfNeeded(suspicionTimeout, deadTimeout, cleanUpTimeout)
 		if changed {
 			s.Members.Print()
 		}
@@ -71,9 +71,9 @@ func (s *Server) sendTimelyMessagesAsPerProtocol(interval time.Duration) {
 	for range ticker.C {
 		switch Config.Protocol {
 		case GossipProtocol:
-			s.gossipSend(Config.GossipFanout)
+			s.gossipSend(Config.Fanout)
 		case PingAckProtocol:
-			s.pingSend(Config.GossipFanout)
+			s.pingSend(Config.Fanout)
 		}
 	}
 }

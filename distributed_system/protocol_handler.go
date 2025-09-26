@@ -122,9 +122,16 @@ func mergeMembership(server *Server, receivedMembers []Member) {
 	localSnapshot := server.Members.Snapshot()
 
 	for _, receivedMember := range receivedMembers {
+
+		if Config.Protocol == GossipProtocol && receivedMember.Status == StatusDead {
+			fmt.Printf("Received dead node in gossip protocol\n")
+			continue
+		}
+
+		// Skip processing if local member is already dead and received member is also dead
 		_, exists := localSnapshot[receivedMember.ID()]
 
-		if !exists {
+		if !exists && receivedMember.Status != StatusDead {
 			// New member, add it
 			receivedMember.LastUpdated = time.Now()
 			server.Members.AddOrUpdate(receivedMember)
@@ -136,8 +143,9 @@ func mergeMembership(server *Server, receivedMembers []Member) {
 
 		// TODO: Move this to a diff function to make more modular
 		// Special case: Handle self-node with suspicion enabled
-		if Config.Suspicion == Suspect && receivedMember.Address == server.Addr {
-			if receivedMember.Status == StatusSuspect && localMember.Status == StatusAlive {
+		if Config.Suspicion == Suspect && receivedMember.ID() == server.ID() {
+			if receivedMember.Status == StatusSuspect && localMember.Status == StatusAlive &&
+				receivedMember.Incarnation >= localMember.Incarnation {
 				// We are alive but others think we are suspect - increment incarnation
 				// TODO: Dont update everytime. Update only if local incarnation is less or equal
 				server.IncarnationNumber++
@@ -178,7 +186,7 @@ func mergeMembership(server *Server, receivedMembers []Member) {
 func handleSuspicionMerge(localMember Member, receivedMember Member) Member {
 	// Rule 1: Dead/VoluntaryLeave always wins (overrides everything, even incarnation number)
 	if receivedMember.Status == StatusDead || receivedMember.Status == StatusVoluntaryLeave {
-		receivedMember.LastUpdated = time.Now()
+		// receivedMember.LastUpdated = time.Now()
 		return receivedMember
 	}
 	if localMember.Status == StatusDead || localMember.Status == StatusVoluntaryLeave {

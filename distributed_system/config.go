@@ -14,6 +14,7 @@ var heartbeatInterval = 1 * time.Second
 var suspicionCheckTimeout = 3 * time.Second
 var suspicionTimeout = 5 * time.Second
 var deadTimeout = 10 * time.Second
+var cleanUpTimeout = 5 * time.Second
 var gossipOrSwimPingInterval = 1 * time.Second
 
 // Use gossipOrSwimPingInterval and GossipFanout in conjunction
@@ -49,14 +50,14 @@ var NodeMap = map[string]string{
 var Config = struct {
 	IntroducerAddr  string
 	Protocol        ProtocolType
-	GossipFanout    int
+	Fanout          int
 	AllNodes        []string
 	Suspicion       SuspicionType
 	MessageDropRate float64 // Percentage of messages to drop (0.0 to 1.0)
 }{
 	IntroducerAddr:  "127.0.0.1:5000",
 	Protocol:        GossipProtocol,
-	GossipFanout:    3,          // Number of random nodes to gossip to
+	Fanout:          3,          // Number of random nodes to gossip to
 	AllNodes:        []string{}, // Will be populated dynamically
 	Suspicion:       Suspect,    // Enable suspicion mechanism by default
 	MessageDropRate: 0.0,        // No message drop by default

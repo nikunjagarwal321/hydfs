@@ -118,7 +118,7 @@ func (s *Server) StartRPCServer() error {
 	go s.listenForMessages(conn)
 	go s.sendTimelyMessagesAsPerProtocol(gossipOrSwimPingInterval)
 	go s.increaseHeartbeat(heartbeatInterval)
-	go s.backgroundCheckerRPC(suspicionCheckTimeout, suspicionTimeout, deadTimeout)
+	go s.backgroundCheckerRPC(suspicionCheckTimeout, suspicionTimeout, deadTimeout, cleanUpTimeout)
 	go s.startCLI(cmdChan)
 
 	// main loop processes commands
@@ -282,6 +282,9 @@ func (s *Server) notifyIntroducer() error {
 		return err
 	} else {
 		fmt.Printf("Join response message: %+v\n", resp.Message)
+		// Change to already existing protocol in the group when joining
+		Config.Protocol = resp.Protocol
+		Config.Suspicion = resp.Suspicion
 		mergeMembership(s, resp.MembershipList)
 		return nil
 	}

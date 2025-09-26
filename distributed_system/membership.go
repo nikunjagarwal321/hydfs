@@ -27,28 +27,60 @@ func (ml *MembershipList) Remove(nodeID string) {
 	delete(ml.nodes, nodeID)
 }
 
-func (ml *MembershipList) MarkSuspectIfNeeded(suspicionTimeout, deadTimeout time.Duration) bool {
+func (ml *MembershipList) MarkSuspectIfNeeded(suspicionTimeout, deadTimeout, cleanUpTimeout time.Duration) bool {
 	ml.mu.Lock()
 	defer ml.mu.Unlock()
 
 	changed := false
 	now := time.Now()
 
-	// TODO: Verify this logic
+	// Collect changes to avoid modifying map during iteration
+	var toUpdate []Member
+	var toRemove []string
 
 	for id, m := range ml.nodes {
+
+		// Skip self check for suspicion if protocol is SWIM
+		if Config.Protocol == PingAckProtocol {
+			if m.Address == globalServer.Addr {
+				continue
+			}
+		}
+
 		elapsed := now.Sub(m.LastUpdated)
 
 		if m.Status == StatusAlive && elapsed > suspicionTimeout {
-			m.MarkSuspect()
-			ml.nodes[id] = m
-			changed = true
+			switch Config.Suspicion {
+			case Suspect:
+				m.MarkSuspect()
+				toUpdate = append(toUpdate, m)
+				changed = true
+			case NoSuspect:
+				// In no-suspicion mode, mark as dead directly
+				m.MarkDead()
+				toUpdate = append(toUpdate, m)
+				changed = true
+			}
 		} else if m.Status == StatusSuspect && elapsed > deadTimeout {
 			m.MarkDead()
-			ml.nodes[id] = m
+			toUpdate = append(toUpdate, m)
+			changed = true
+		} else if m.Status == StatusDead && elapsed > cleanUpTimeout {
+			toRemove = append(toRemove, id)
 			changed = true
 		}
 	}
+
+	// Apply updates after iteration
+	for _, member := range toUpdate {
+		ml.nodes[member.ID()] = member
+	}
+
+	// Apply removals after iteration
+	for _, id := range toRemove {
+		delete(ml.nodes, id)
+	}
+
 	return changed
 }
 

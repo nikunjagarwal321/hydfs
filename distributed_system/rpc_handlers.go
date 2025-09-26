@@ -16,9 +16,11 @@ type JoinRequest struct {
 }
 
 type JoinResponse struct {
-	Success        bool     `json:"success"`
-	Message        string   `json:"message"`
-	MembershipList []Member `json:"membership_list"`
+	Success        bool          `json:"success"`
+	Message        string        `json:"message"`
+	MembershipList []Member      `json:"membership_list"`
+	Protocol       ProtocolType  `json:"protocol_type"`
+	Suspicion      SuspicionType `json:"suspicion_type"`
 }
 
 type GossipRequest struct {
@@ -60,6 +62,8 @@ func (ds *DistributedSystemService) Join(req *JoinRequest, resp *JoinResponse) e
 		resp.Success = true
 		resp.Message = "Successfully joined the cluster"
 		resp.MembershipList = ds.server.Members.GetAll()
+		resp.Protocol = Config.Protocol
+		resp.Suspicion = Config.Suspicion
 		return nil
 	}
 	resp.Success = false
