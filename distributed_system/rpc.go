@@ -285,7 +285,7 @@ func (s *Server) notifyIntroducer() error {
 		// Change to already existing protocol in the group when joining
 		Config.Protocol = resp.Protocol
 		Config.Suspicion = resp.Suspicion
-		mergeMembership(s, resp.MembershipList)
+		mergeMembership(s, resp.MembershipList, resp.IntroducerID)
 		return nil
 	}
 }

@@ -21,6 +21,7 @@ type JoinResponse struct {
 	MembershipList []Member      `json:"membership_list"`
 	Protocol       ProtocolType  `json:"protocol_type"`
 	Suspicion      SuspicionType `json:"suspicion_type"`
+	IntroducerID   string        `json:"introducer_id"`
 }
 
 type GossipRequest struct {
@@ -64,6 +65,7 @@ func (ds *DistributedSystemService) Join(req *JoinRequest, resp *JoinResponse) e
 		resp.MembershipList = ds.server.Members.GetAll()
 		resp.Protocol = Config.Protocol
 		resp.Suspicion = Config.Suspicion
+		resp.IntroducerID = ds.server.ID()
 		return nil
 	}
 	resp.Success = false
@@ -74,7 +76,7 @@ func (ds *DistributedSystemService) Join(req *JoinRequest, resp *JoinResponse) e
 // Gossip handles gossip protocol messages
 func (ds *DistributedSystemService) Gossip(req *GossipRequest, resp *GossipResponse) error {
 	if globalServer != nil {
-		mergeMembership(globalServer, req.MembershipList)
+		mergeMembership(globalServer, req.MembershipList, req.SenderID)
 		resp.Success = true
 	} else {
 		resp.Success = false
@@ -88,7 +90,7 @@ func (ds *DistributedSystemService) Ping(req *PingRequest, resp *Ack) error {
 
 	// Merge received membership list
 	if globalServer != nil {
-		mergeMembership(globalServer, req.MembershipList)
+		mergeMembership(globalServer, req.MembershipList, req.SenderID)
 	}
 
 	// Will treat this as ACK for now. TODO: Introduce timeout or send a separate message response
@@ -142,17 +144,8 @@ func CallPing(address string, senderId string, membersList []Member) (*Ack, erro
 	}
 	var resp Ack
 	// TODO: Add a timeout for which you want to wait incase you dont want to get a response.
+	fmt.Printf("PingAck: Sending Ping to %s\n", address)
 	err := makeRPCCall(address, "Ping", req, &resp)
-
-	if err == nil {
-		fmt.Printf("PingAck: Received ACK from %s\n", address)
-	}
-
-	// Merge received membership list
-	if err == nil && globalServer != nil {
-		mergeMembership(globalServer, resp.MembershipList)
-	}
-
 	return &resp, err
 }
 
