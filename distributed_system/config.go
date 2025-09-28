@@ -9,12 +9,17 @@ type ProtocolType string
 
 type SuspicionType string
 
-var heartbeatInterval = 1 * time.Second
-var suspicionCheckTimeout = 3 * time.Second
-var suspicionTimeout = 5 * time.Second
-var deadTimeout = 10 * time.Second
-var cleanUpTimeout = 5 * time.Second
-var gossipOrSwimPingInterval = 1 * time.Second
+var heartbeatInterval = 100 * time.Millisecond
+var suspicionCheckTimeout = 1 * time.Second
+var suspicionTimeout = 2 * time.Second
+var deadTimeout = 2 * time.Second
+var cleanUpTimeout = 2 * time.Second
+var gossipOrSwimPingInterval = 100 * time.Millisecond
+var PingFanout = 1
+var GossipFanout = 1
+var InitialProtocol = PingAckProtocol
+var InitialSuspicion = NoSuspect
+var InitialMessageDropRate = 0.0
 
 // Use gossipOrSwimPingInterval and GossipFanout in conjunction
 
@@ -60,17 +65,22 @@ var Config = struct {
 	MessageDropRate float64 // Percentage of messages to drop (0.0 to 1.0)
 }{
 	IntroducerAddr:  "127.0.0.1:5000",
-	Protocol:        GossipProtocol,
-	Fanout:          3,          // Number of random nodes to gossip to
-	AllNodes:        []string{}, // Will be populated dynamically
-	Suspicion:       Suspect,    // Enable suspicion mechanism by default
-	MessageDropRate: 0.0,        // No message drop by default
+	Protocol:        InitialProtocol,
+	Fanout:          PingFanout,             // Number of random nodes to gossip to
+	AllNodes:        []string{},             // Will be populated dynamically
+	Suspicion:       InitialSuspicion,       // Enable suspicion mechanism by default
+	MessageDropRate: InitialMessageDropRate, // No message drop by default
 }
 
 // SwitchProtocol and ToggleSuspicion allows dynamic protocol and suspicion type switching at runtime
 func SwitchProtocol(newProtocol ProtocolType, newSuspicionType SuspicionType) {
 	Config.Protocol = newProtocol
 	Config.Suspicion = newSuspicionType
+	if newProtocol == PingAckProtocol {
+		Config.Fanout = PingFanout
+	} else {
+		Config.Fanout = GossipFanout
+	}
 	LogInfo(true, "New Configs: {%s, %s}", newProtocol, newSuspicionType)
 }
 

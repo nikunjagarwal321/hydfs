@@ -170,6 +170,7 @@ func mergeMembership(server *Server, receivedMembers []Member, senderId string) 
 			receivedMember.LastUpdated = time.Now()
 			server.Members.AddOrUpdate(receivedMember)
 			LogInfo(true, "MEMBER_JOIN: Added new member: %s during merge", receivedMember.ID())
+			ConsolePrintf("MEMBER_JOIN: Added new member: %s during merge \n", receivedMember.ID())
 			continue
 		} else if !exists && receivedMember.Status == StatusDead {
 			continue // Handle edge case where a received dead node is not in local membership list in swim
@@ -183,7 +184,6 @@ func mergeMembership(server *Server, receivedMembers []Member, senderId string) 
 			if receivedMember.Status == StatusSuspect && localMember.Status == StatusAlive &&
 				receivedMember.Incarnation >= localMember.Incarnation {
 				// We are alive but others think we are suspect - increment incarnation
-				// TODO: Dont update everytime. Update only if local incarnation is less or equal
 				server.IncarnationNumber++
 				localMember.Incarnation = server.IncarnationNumber
 				localMember.LastUpdated = time.Now()
