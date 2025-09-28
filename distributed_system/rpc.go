@@ -26,6 +26,15 @@ type RPCResponse struct {
 
 // makeRPCCall is a generic RPC call function over UDP with bandwidth tracking
 func makeRPCCall(address string, method string, params interface{}, result interface{}, server *Server) error {
+	if Config.MessageDropRate > 0.0 {
+		// Generate random number between 0.0 and 1.0
+		if rand.Float64() < Config.MessageDropRate {
+			// Drop the message - simulate network packet loss
+			LogInfo(true, "DROPPED message to %s (drop rate: %.2f%%)",
+				address, Config.MessageDropRate*100)
+			return nil
+		}
+	}
 	conn, err := net.Dial("udp", address)
 	if err != nil {
 		return fmt.Errorf("dial error: %w", err)
