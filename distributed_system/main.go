@@ -7,9 +7,16 @@ import (
 
 func main() {
 	nodeName := os.Args[1]
-	fmt.Println("Current node name:", nodeName)
+
+	// Initialize logger first
+	if err := InitializeLogger(nodeName); err != nil {
+		fmt.Printf("Failed to initialize logger: %v\n", err)
+		os.Exit(1)
+	}
+
+	ConsolePrintf("Current node name: %s\n", nodeName)
 	nodeAddr := NodeMap[nodeName]
-	fmt.Println("Current node address:", nodeAddr)
+	ConsolePrintf("Current node address: %s\n", nodeAddr)
 	var isIntroducer = false
 	if nodeAddr == Config.IntroducerAddr {
 		isIntroducer = true
@@ -17,6 +24,6 @@ func main() {
 
 	s := NewServer(nodeAddr, Config.IntroducerAddr, isIntroducer)
 	if err := s.Start(); err != nil {
-		fmt.Println("Server error:", err)
+		LogError(true, "Server error: %v", err)
 	}
 }

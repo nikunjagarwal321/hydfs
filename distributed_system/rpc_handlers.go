@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
 	"time"
 )
 
@@ -60,6 +61,7 @@ func (ds *DistributedSystemService) Join(req *JoinRequest, resp *JoinResponse) e
 	if ds.server.IsIntroducer {
 		req.Member.LastUpdated = time.Now()
 		ds.server.Members.AddOrUpdate(req.Member)
+		LogInfo(true, "MEMBER_JOIN: Introducer accepted new member: %s", req.Member.ID())
 		resp.Success = true
 		resp.Message = "Successfully joined the cluster"
 		resp.MembershipList = ds.server.Members.GetAll()
@@ -86,7 +88,7 @@ func (ds *DistributedSystemService) Gossip(req *GossipRequest, resp *GossipRespo
 
 // Ping handles SWIM ping messages (for future SWIM implementation)
 func (ds *DistributedSystemService) Ping(req *PingRequest, resp *Ack) error {
-	fmt.Printf("PingAck: Received PING from %s \n", req.SenderID)
+	LogInfo(false, "PingAck: Received PING from %s", req.SenderID)
 
 	// Merge received membership list
 	if globalServer != nil {
@@ -102,14 +104,14 @@ func (ds *DistributedSystemService) Ping(req *PingRequest, resp *Ack) error {
 
 // ProtocolSwitch handles protocol change broadcast messages
 func (ds *DistributedSystemService) ProtocolSwitch(req *ProtocolSwitchRequest, resp *ProtocolSwitchResponse) error {
-	fmt.Printf("Received protocol switch request from %s: Protocol=%s, Suspicion=%s\n",
+	LogInfo(true, "Received protocol switch request from %s: Protocol=%s, Suspicion=%s",
 		req.SenderID, req.Protocol, req.Suspicion)
 
 	// Apply the protocol switch
 	SwitchProtocol(req.Protocol, req.Suspicion)
 
 	resp.Success = true
-	fmt.Printf("Successfully switched protocol to: %s, %s\n", req.Protocol, req.Suspicion)
+	LogInfo(true, "Successfully switched protocol to: %s, %s", req.Protocol, req.Suspicion)
 	return nil
 }
 
@@ -144,8 +146,17 @@ func CallPing(address string, senderId string, membersList []Member) (*Ack, erro
 	}
 	var resp Ack
 	// TODO: Add a timeout for which you want to wait incase you dont want to get a response.
-	fmt.Printf("PingAck: Sending Ping to %s\n", address)
+	LogInfo(false, "PingAck: Sending Ping to %s", address)
 	err := makeRPCCall(address, "Ping", req, &resp)
+
+	// Simulate ACK drop at the caller side
+	if err == nil && Config.MessageDropRate > 0.0 {
+		if rand.Float64() < Config.MessageDropRate {
+			LogInfo(true, "DROPPED ACK from %s (drop rate: %.2f%%)", address, Config.MessageDropRate*100)
+			return nil, fmt.Errorf("ACK dropped")
+		}
+	}
+
 	return &resp, err
 }
 

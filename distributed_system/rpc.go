@@ -98,7 +98,7 @@ func (s *Server) StartRPCServer() error {
 	}
 	defer conn.Close()
 
-	fmt.Printf("RPC Server listening on %s, Introducer: %v\n", s.Addr, s.IsIntroducer)
+	ConsolePrintf("RPC Server listening on %s, Introducer: %v\n", s.Addr, s.IsIntroducer)
 
 	// Set global server for gossip handling
 	globalServer = s
@@ -107,7 +107,7 @@ func (s *Server) StartRPCServer() error {
 	if !s.IsIntroducer {
 		err = s.notifyIntroducer()
 		if err != nil {
-			fmt.Printf("Failed to start the node: %v\n", err)
+			LogError(true, "Failed to start the node: %v", err)
 			return err
 		}
 	}
@@ -134,7 +134,7 @@ func (s *Server) startCLI(cmdChan chan<- string) {
 		cmdChan <- scanner.Text()
 	}
 	if err := scanner.Err(); err != nil {
-		fmt.Println("Error reading input:", err)
+		LogError(true, "Error reading input: %v", err)
 	}
 }
 
@@ -151,7 +151,7 @@ func (s *Server) handleCommand(cmd string) {
 	case "list_mem":
 		s.Members.Print()
 	case "list_self":
-		fmt.Printf("Self ID: %s\n", s.ID())
+		ConsolePrintf("Self ID: %s\n", s.ID())
 	case "leave":
 		s.leaveGroup()
 	case "display_suspects":
@@ -160,30 +160,30 @@ func (s *Server) handleCommand(cmd string) {
 		printCurrentProtocol()
 	case "switch":
 		if len(parts) != 3 {
-			fmt.Printf("Invalid switch command format. Expected: switch <protocol> <suspicion>\n")
+			ConsolePrintf("Invalid switch command format. Expected: switch <protocol> <suspicion>\n")
 			return
 		}
 		s.handleSwitch(parts[1], parts[2])
 	case "drop":
 		if len(parts) != 2 {
-			fmt.Printf("Invalid drop command format. Expected: drop <percentage>\n")
+			ConsolePrintf("Invalid drop command format. Expected: drop <percentage>\n")
 			return
 		}
 		SetMessageDropRate(parts[1])
 	default:
-		fmt.Println("Unknown command:", command)
+		ConsolePrintf("Unknown command: %s\n", command)
 	}
 }
 
 func (s *Server) leaveGroup() {
-	fmt.Printf("Initiating graceful leave from the group...\n")
+	LogInfo(true, "Initiating graceful leave from the group...")
 
 	// Get current membership snapshot
 	snapshot := s.Members.Snapshot()
 	selfMember, exists := snapshot[s.ID()]
 
 	if !exists {
-		fmt.Printf("Error: Self not found in membership list\n")
+		LogError(true, "Error: Self not found in membership list")
 		return
 	}
 
@@ -192,7 +192,7 @@ func (s *Server) leaveGroup() {
 	selfMember.Incarnation = s.IncarnationNumber // Use current incarnation
 	s.Members.AddOrUpdate(selfMember)
 
-	fmt.Printf("Marked self as voluntarily leaving: %s\n", s.ID())
+	LogInfo(true, "MEMBER_LEAVE: Marked self as voluntarily leaving: %s", s.ID())
 }
 
 func (s *Server) handleSwitch(protocolStr, suspicionStr string) {
@@ -201,13 +201,13 @@ func (s *Server) handleSwitch(protocolStr, suspicionStr string) {
 
 	protocol, ok := ProtocolMap[protocolStr]
 	if !ok {
-		fmt.Printf("Invalid protocol '%s'\n", protocolStr)
+		ConsolePrintf("Invalid protocol '%s'\n", protocolStr)
 		return
 	}
 
 	suspicion, ok := SuspicionMap[suspicionStr]
 	if !ok {
-		fmt.Printf("Invalid suspicion type '%s'\n", suspicionStr)
+		ConsolePrintf("Invalid suspicion type '%s'\n", suspicionStr)
 		return
 	}
 
@@ -222,19 +222,19 @@ func (s *Server) handleSwitch(protocolStr, suspicionStr string) {
 			go func(nodeAddr string) {
 				resp, err := CallProtocolSwitch(nodeAddr, s.ID(), protocol, suspicion)
 				if err != nil {
-					fmt.Printf("Failed to send protocol switch to %s: %v\n", nodeAddr, err)
+					LogError(true, "Failed to send protocol switch to %s: %v", nodeAddr, err)
 				} else {
-					fmt.Printf("Sent protocol switch to %s, success: %v\n", nodeAddr, resp.Success)
+					LogInfo(true, "Sent protocol switch to %s, success: %v", nodeAddr, resp.Success)
 				}
 			}(member.Address)
 		}
 	}
 
-	fmt.Printf("Protocol switch broadcast completed\n")
+	ConsolePrintln("Protocol switch broadcast completed")
 }
 
 func printCurrentProtocol() {
-	fmt.Printf("Current Protocol: %s | Suspicion: %s | Message Drop Rate: %.2f%%\n",
+	ConsolePrintf("Current Protocol: %s | Suspicion: %s | Message Drop Rate: %.2f%%\n",
 		Config.Protocol, Config.Suspicion, Config.MessageDropRate*100)
 }
 
@@ -278,10 +278,10 @@ func (s *Server) notifyIntroducer() error {
 
 	resp, err := CallJoin(s.IntroducerAddr, member)
 	if err != nil {
-		fmt.Printf("Failed to join cluster: %v\n", err)
+		LogError(true, "Failed to join cluster: %v", err)
 		return err
 	} else {
-		fmt.Printf("Join response message: %+v\n", resp.Message)
+		LogInfo(true, "MEMBER_JOIN: Successfully joined cluster: %s", s.ID())
 		// Change to already existing protocol in the group when joining
 		Config.Protocol = resp.Protocol
 		Config.Suspicion = resp.Suspicion
@@ -298,7 +298,7 @@ func (s *Server) listenForMessages(conn *net.UDPConn) {
 	for {
 		n, clientAddr, err := conn.ReadFromUDP(buffer)
 		if err != nil {
-			fmt.Printf("Read error: %v\n", err)
+			LogError(true, "Read error: %v", err)
 			continue
 		}
 
@@ -307,13 +307,16 @@ func (s *Server) listenForMessages(conn *net.UDPConn) {
 			// Generate random number between 0.0 and 1.0
 			if rand.Float64() < Config.MessageDropRate {
 				// Drop the message - simulate network packet loss
-				fmt.Printf("DROPPED message from %s (drop rate: %.2f%%)\n",
+				LogInfo(true, "DROPPED message from %s (drop rate: %.2f%%)",
 					clientAddr.String(), Config.MessageDropRate*100)
 				continue
 			}
 		}
 
-		go s.handleRPCRequest(conn, clientAddr, buffer[:n], service)
+		// Create a copy of the buffer data for the goroutine to avoid race conditions
+		data := make([]byte, n)
+		copy(data, buffer[:n])
+		go s.handleRPCRequest(conn, clientAddr, data, service)
 	}
 }
 

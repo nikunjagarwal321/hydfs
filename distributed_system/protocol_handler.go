@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"encoding/json"
 	"math/rand"
 	"time"
 )
@@ -70,18 +70,36 @@ func (s *Server) gossipSend(nodeCount int) {
 		return // No nodes to gossip to
 	}
 
+	// Create optimized membership list with only necessary fields
 	membersList := []Member{}
 	for _, m := range snapshot {
-		membersList = append(membersList, m)
+		// Create minimal member with only essential fields
+		optimizedMember := Member{
+			Address:               m.Address,               // Keep for ID generation
+			NodeCreationTimestamp: m.NodeCreationTimestamp, // Keep for ID generation
+			Status:                m.Status,                // Essential for merge logic
+			Heartbeat:             m.Heartbeat,             // Used in gossip protocol
+			Incarnation:           m.Incarnation,           // Essential for merge logic
+			// Skip LastUpdated - gets set to time.Now() during merge
+		}
+		membersList = append(membersList, optimizedMember)
 	}
+
+	// Calculate message size for bandwidth measurement
+	req := GossipRequest{SenderID: s.ID(), MembershipList: membersList}
+	reqData, _ := json.Marshal(req)
+	messageSize := len(reqData)
+
+	LogInfo(true, "BANDWIDTH_GOSSIP: Sent %d bytes to %d nodes (total: %d bytes)",
+		messageSize, len(nodes), messageSize*len(nodes))
 
 	for _, node := range nodes {
 		go func(nodeId string) {
 			resp, err := CallGossip(GetAddressFromID(nodeId), s.ID(), membersList)
 			if err != nil {
-				fmt.Printf("Failed to send gossip to %s: %v\n", nodeId, err)
+				LogError(true, "Failed to send gossip to %s: %v", nodeId, err)
 			} else {
-				fmt.Printf("Sent gossip to %s, success: %v\n", nodeId, resp.Success)
+				LogInfo(false, "Sent gossip to %s, success: %v", nodeId, resp.Success)
 			}
 		}(node)
 	}
@@ -90,8 +108,6 @@ func (s *Server) gossipSend(nodeCount int) {
 // Send ping to random nodes
 func (s *Server) pingSend(nodeCount int) {
 
-	// TODO: In future, send partial membership list rather than full list
-
 	snapshot := s.Members.Snapshot()
 	nodes := selectNextKNodes(nodeCount, s.ID(), snapshot)
 
@@ -99,18 +115,36 @@ func (s *Server) pingSend(nodeCount int) {
 		return // No nodes to gossip to
 	}
 
+	// Create optimized membership list with only necessary fields for PingAck
 	membersList := []Member{}
 	for _, m := range snapshot {
-		membersList = append(membersList, m)
+		// Create minimal member with only essential fields for PingAck protocol
+		optimizedMember := Member{
+			Address:               m.Address,               // Keep for ID generation
+			NodeCreationTimestamp: m.NodeCreationTimestamp, // Keep for ID generation
+			Status:                m.Status,                // Essential for merge logic
+			Incarnation:           m.Incarnation,           // Essential for merge logic
+			// Skip Heartbeat - not used in PingAck protocol
+			// Skip LastUpdated - gets set to time.Now() during merge
+		}
+		membersList = append(membersList, optimizedMember)
 	}
+
+	// Calculate message size for bandwidth measurement
+	req := PingRequest{SenderID: s.ID(), MembershipList: membersList}
+	reqData, _ := json.Marshal(req)
+	messageSize := len(reqData)
+
+	LogInfo(true, "BANDWIDTH_PING: Sent %d bytes to %d nodes (total: %d bytes)",
+		messageSize, len(nodes), messageSize*len(nodes))
 
 	for _, node := range nodes {
 		go func(nodeId string) {
 			resp, err := CallPing(GetAddressFromID(nodeId), s.ID(), membersList)
 			if err != nil {
-				fmt.Printf("Failed to send ping to %s: %v\n", nodeId, err)
+				LogError(true, "Failed to send ping to %s: %v", nodeId, err)
 			} else {
-				fmt.Printf("PingAck: Received ACK from %s\n", nodeId)
+				LogInfo(false, "PingAck: Received ACK from %s", nodeId)
 				mergeMembership(s, resp.MembershipList, nodeId)
 			}
 		}(node)
@@ -118,13 +152,13 @@ func (s *Server) pingSend(nodeCount int) {
 }
 
 // mergeMembership merges the received membership list with local membership
-func mergeMembership(server *Server, receivedMembers []Member, receiverId string) {
+func mergeMembership(server *Server, receivedMembers []Member, senderId string) {
 	localSnapshot := server.Members.Snapshot()
 
 	for _, receivedMember := range receivedMembers {
 
 		if Config.Protocol == GossipProtocol && receivedMember.Status == StatusDead {
-			fmt.Printf("Received dead node in gossip protocol\n")
+			LogInfo(false, "FAILURE_COMMUNICATED: Received dead node status from %s: %s during merge", senderId, receivedMember.ID())
 			continue
 		}
 
@@ -135,7 +169,7 @@ func mergeMembership(server *Server, receivedMembers []Member, receiverId string
 			// New member, add it
 			receivedMember.LastUpdated = time.Now()
 			server.Members.AddOrUpdate(receivedMember)
-			fmt.Printf("Added new member: %s\n", receivedMember.ID())
+			LogInfo(true, "MEMBER_JOIN: Added new member: %s during merge", receivedMember.ID())
 			continue
 		} else if !exists && receivedMember.Status == StatusDead {
 			continue // Handle edge case where a received dead node is not in local membership list in swim
@@ -154,12 +188,11 @@ func mergeMembership(server *Server, receivedMembers []Member, receiverId string
 				localMember.Incarnation = server.IncarnationNumber
 				localMember.LastUpdated = time.Now()
 				server.Members.AddOrUpdate(localMember)
-				fmt.Printf("Incremented incarnation to %d - I'm alive but was marked as suspect\n", server.IncarnationNumber)
+				LogInfo(true, "Incremented incarnation to %d - I'm alive but was marked as suspect", server.IncarnationNumber)
 				continue
 			}
 			if receivedMember.Status == StatusDead {
 				// If others think we are dead, do nothing (we know we are alive)
-				fmt.Printf("Ignoring dead status for self from external source\n")
 				continue
 			}
 		}
@@ -168,9 +201,9 @@ func mergeMembership(server *Server, receivedMembers []Member, receiverId string
 
 		switch Config.Suspicion {
 		case Suspect:
-			updatedMember = handleSuspicionMerge(localMember, receivedMember, receiverId)
+			updatedMember = handleSuspicionMerge(localMember, receivedMember, senderId)
 		case NoSuspect:
-			updatedMember = handleNoSuspicionMerge(localMember, receivedMember, receiverId)
+			updatedMember = handleNoSuspicionMerge(localMember, receivedMember, senderId)
 		}
 
 		server.Members.AddOrUpdate(updatedMember)
@@ -189,6 +222,9 @@ func handleSuspicionMerge(localMember Member, receivedMember Member, receiverId 
 	// Rule 1: Dead/VoluntaryLeave always wins (overrides everything, even incarnation number)
 	if receivedMember.Status == StatusDead || receivedMember.Status == StatusVoluntaryLeave {
 		// receivedMember.LastUpdated = time.Now()
+		if localMember.Status != receivedMember.Status {
+			LogInfo(true, "MEMBER_STATUS_CHANGE: Member %s status changed to %s (from %s) during merge", receivedMember.ID(), receivedMember.Status, localMember.Status)
+		}
 		return receivedMember
 	}
 	if localMember.Status == StatusDead || localMember.Status == StatusVoluntaryLeave {
@@ -228,6 +264,7 @@ func handleSuspicionMerge(localMember Member, receivedMember Member, receiverId 
 		} else {
 			// Different status, same incarnation: Suspect > Alive
 			if compareStatus(receivedMember.Status, localMember.Status) {
+				LogInfo(true, "MEMBER_STATUS_CHANGE: Member %s status changed from %s to %s during merge", receivedMember.ID(), localMember.Status, receivedMember.Status)
 				receivedMember.LastUpdated = time.Now()
 				return receivedMember
 			}
@@ -243,6 +280,9 @@ func handleNoSuspicionMerge(localMember Member, receivedMember Member, receiverI
 	// TODO: verify what will happen, if self node is dead
 	if receivedMember.Status == StatusDead || receivedMember.Status == StatusVoluntaryLeave {
 		// receivedMember.LastUpdated = time.Now()
+		if localMember.Status != receivedMember.Status {
+			LogInfo(true, "MEMBER_STATUS_CHANGE: Member %s status changed to %s (from %s) during merge", receivedMember.ID(), receivedMember.Status, localMember.Status)
+		}
 		return receivedMember
 	}
 	if localMember.Status == StatusDead || localMember.Status == StatusVoluntaryLeave {
@@ -262,11 +302,11 @@ func handleNoSuspicionMerge(localMember Member, receivedMember Member, receiverI
 				receivedMember.LastUpdated = time.Now()
 				return receivedMember
 			}
-			// TODO : confirm this with prof
 		}
 	} else {
 		// Different status, same incarnation: Suspect > Alive
 		if compareStatus(receivedMember.Status, localMember.Status) {
+			LogInfo(true, "MEMBER_STATUS_CHANGE: Member %s status changed from %s to %s during merge", receivedMember.ID(), localMember.Status, receivedMember.Status)
 			receivedMember.LastUpdated = time.Now()
 			return receivedMember
 		}

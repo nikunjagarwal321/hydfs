@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"sync"
 	"time"
 )
@@ -54,19 +53,25 @@ func (ml *MembershipList) MarkSuspectIfNeeded(suspicionTimeout, deadTimeout, cle
 			case Suspect:
 				m.MarkSuspect()
 				toUpdate = append(toUpdate, m)
+				LogInfo(true, "FAILURE_DETECTED: Marked member as SUSPECT: %s", m.ID())
 				changed = true
 			case NoSuspect:
-				// In no-suspicion mode, mark as dead directly
-				m.MarkDead()
-				toUpdate = append(toUpdate, m)
-				changed = true
+				// In no-suspicion mode, only mark as dead if it crosses dead timeout
+				if elapsed > deadTimeout {
+					m.MarkDead()
+					toUpdate = append(toUpdate, m)
+					LogInfo(true, "FAILURE_DETECTED: Marked member as DEAD: %s", m.ID())
+					changed = true
+				}
 			}
 		} else if m.Status == StatusSuspect && elapsed > deadTimeout {
 			m.MarkDead()
 			toUpdate = append(toUpdate, m)
+			LogInfo(true, "FAILURE_CONFIRMED: Marked suspected member as DEAD: %s", m.ID())
 			changed = true
 		} else if m.Status == StatusDead && elapsed > cleanUpTimeout {
 			toRemove = append(toRemove, id)
+			LogInfo(true, "MEMBER_CLEANUP: Removed dead member from list: %s", id)
 			changed = true
 		}
 	}
@@ -110,24 +115,24 @@ func (ml *MembershipList) Print() {
 	ml.mu.Lock()
 	defer ml.mu.Unlock()
 
-	fmt.Println("---- Membership List ----")
+	ConsolePrintln("---- Membership List ----")
 	for _, member := range ml.nodes {
-		fmt.Printf("Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.LastUpdated)
+		ConsolePrintf("Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.LastUpdated)
 	}
-	fmt.Println("-------------------------")
+	ConsolePrintln("-------------------------")
 }
 
 func (ml *MembershipList) PrintSuspectedNodes() {
 	ml.mu.Lock()
 	defer ml.mu.Unlock()
 
-	fmt.Println("---- Membership List ----")
+	ConsolePrintln("---- Membership List ----")
 	for _, member := range ml.nodes {
 		if member.Status == StatusSuspect {
-			fmt.Printf("Suspected Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.LastUpdated)
+			ConsolePrintf("Suspected Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.LastUpdated)
 		}
 	}
-	fmt.Println("-------------------------")
+	ConsolePrintln("-------------------------")
 
 }
 

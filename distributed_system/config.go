@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strconv"
 	"time"
 )
@@ -40,11 +39,16 @@ var SuspicionMap = map[string]SuspicionType{
 }
 
 var NodeMap = map[string]string{
-	"vm1": "127.0.0.1:5000",
-	"vm2": "127.0.0.1:5001",
-	"vm3": "127.0.0.1:5002",
-	"vm4": "127.0.0.1:5003",
-	"vm5": "127.0.0.1:5004",
+	"vm1":  "127.0.0.1:5000",
+	"vm2":  "127.0.0.1:5001",
+	"vm3":  "127.0.0.1:5002",
+	"vm4":  "127.0.0.1:5003",
+	"vm5":  "127.0.0.1:5004",
+	"vm6":  "127.0.0.1:5005",
+	"vm7":  "127.0.0.1:5006",
+	"vm8":  "127.0.0.1:5007",
+	"vm9":  "127.0.0.1:5008",
+	"vm10": "127.0.0.1:5009",
 }
 
 var Config = struct {
@@ -67,14 +71,14 @@ var Config = struct {
 func SwitchProtocol(newProtocol ProtocolType, newSuspicionType SuspicionType) {
 	Config.Protocol = newProtocol
 	Config.Suspicion = newSuspicionType
-	fmt.Printf("New Configs: {%s, %s}\n", newProtocol, newSuspicionType)
+	LogInfo(true, "New Configs: {%s, %s}", newProtocol, newSuspicionType)
 }
 
 // SetMessageDropRate sets the message drop rate for testing network failures
 func SetMessageDropRate(percentage string) {
 	dropRate, err := strconv.ParseFloat(percentage, 64)
 	if err != nil {
-		fmt.Printf("Invalid percentage: %s\n", percentage)
+		ConsolePrintf("Invalid percentage: %s\n", percentage)
 		return
 	}
 
@@ -85,5 +89,5 @@ func SetMessageDropRate(percentage string) {
 		dropRate = 1.0
 	}
 	Config.MessageDropRate = dropRate
-	fmt.Printf("Message drop rate set to: %.2f%%\n", dropRate*100)
+	ConsolePrintf("Message drop rate set to: %.2f%%\n", dropRate*100)
 }
