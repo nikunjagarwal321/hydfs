@@ -119,27 +119,27 @@ func (ds *DistributedSystemService) ProtocolSwitch(req *ProtocolSwitchRequest, r
 // RPC Client helper functions
 
 // CallJoin makes an RPC call to join the cluster
-func CallJoin(address string, member Member) (*JoinResponse, error) {
+func CallJoin(address string, member Member, server *Server) (*JoinResponse, error) {
 	req := &JoinRequest{Member: member}
 	var resp JoinResponse
-	err := makeRPCCall(address, "Join", req, &resp)
+	err := makeRPCCall(address, "Join", req, &resp, server)
 	return &resp, err
 }
 
 // CallGossip makes an RPC call to send gossip
-func CallGossip(address string, senderId string, membersList []Member) (*GossipResponse, error) {
+func CallGossip(address string, senderId string, membersList []Member, server *Server) (*GossipResponse, error) {
 	req := &GossipRequest{
 		SenderID:       senderId,
 		MembershipList: membersList,
 	}
 	var resp GossipResponse
-	err := makeRPCCall(address, "Gossip", req, &resp)
+	err := makeRPCCall(address, "Gossip", req, &resp, server)
 	return &resp, err
 }
 
 // CallPing makes an RPC call to ping a node
 // In Ping-Ack, we will also merge the membership list received from ACK
-func CallPing(address string, senderId string, membersList []Member) (*Ack, error) {
+func CallPing(address string, senderId string, membersList []Member, server *Server) (*Ack, error) {
 	// Get membership list from global server
 	req := &PingRequest{
 		SenderID:       senderId,
@@ -148,7 +148,7 @@ func CallPing(address string, senderId string, membersList []Member) (*Ack, erro
 	var resp Ack
 	// TODO: Add a timeout for which you want to wait incase you dont want to get a response.
 	LogInfo(false, "PingAck: Sending Ping to %s", address)
-	err := makeRPCCall(address, "Ping", req, &resp)
+	err := makeRPCCall(address, "Ping", req, &resp, server)
 
 	// Simulate ACK drop at the caller side
 	if err == nil && Config.MessageDropRate > 0.0 {
@@ -162,13 +162,13 @@ func CallPing(address string, senderId string, membersList []Member) (*Ack, erro
 }
 
 // CallProtocolSwitch makes an RPC call to broadcast protocol switch
-func CallProtocolSwitch(address string, senderID string, protocol ProtocolType, suspicion SuspicionType) (*ProtocolSwitchResponse, error) {
+func CallProtocolSwitch(address string, senderID string, protocol ProtocolType, suspicion SuspicionType, server *Server) (*ProtocolSwitchResponse, error) {
 	req := &ProtocolSwitchRequest{
 		SenderID:  senderID,
 		Protocol:  protocol,
 		Suspicion: suspicion,
 	}
 	var resp ProtocolSwitchResponse
-	err := makeRPCCall(address, "ProtocolSwitch", req, &resp)
+	err := makeRPCCall(address, "ProtocolSwitch", req, &resp, server)
 	return &resp, err
 }

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"math/rand"
 	"time"
 )
@@ -85,17 +84,9 @@ func (s *Server) gossipSend(nodeCount int) {
 		membersList = append(membersList, optimizedMember)
 	}
 
-	// Calculate message size for bandwidth measurement
-	req := GossipRequest{SenderID: s.ID(), MembershipList: membersList}
-	reqData, _ := json.Marshal(req)
-	messageSize := len(reqData)
-
-	LogInfo(true, "BANDWIDTH_GOSSIP: Sent %d bytes to %d nodes (total: %d bytes)",
-		messageSize, len(nodes), messageSize*len(nodes))
-
 	for _, node := range nodes {
 		go func(nodeId string) {
-			resp, err := CallGossip(GetAddressFromID(nodeId), s.ID(), membersList)
+			resp, err := CallGossip(GetAddressFromID(nodeId), s.ID(), membersList, s)
 			if err != nil {
 				LogError(true, "Failed to send gossip to %s: %v", nodeId, err)
 			} else {
@@ -130,17 +121,9 @@ func (s *Server) pingSend(nodeCount int) {
 		membersList = append(membersList, optimizedMember)
 	}
 
-	// Calculate message size for bandwidth measurement
-	req := PingRequest{SenderID: s.ID(), MembershipList: membersList}
-	reqData, _ := json.Marshal(req)
-	messageSize := len(reqData)
-
-	LogInfo(true, "BANDWIDTH_PING: Sent %d bytes to %d nodes (total: %d bytes)",
-		messageSize, len(nodes), messageSize*len(nodes))
-
 	for _, node := range nodes {
 		go func(nodeId string) {
-			resp, err := CallPing(GetAddressFromID(nodeId), s.ID(), membersList)
+			resp, err := CallPing(GetAddressFromID(nodeId), s.ID(), membersList, s)
 			if err != nil {
 				LogError(true, "Failed to send ping to %s: %v", nodeId, err)
 			} else {
@@ -170,7 +153,6 @@ func mergeMembership(server *Server, receivedMembers []Member, senderId string) 
 			receivedMember.LastUpdated = time.Now()
 			server.Members.AddOrUpdate(receivedMember)
 			LogInfo(true, "MEMBER_JOIN: Added new member: %s during merge", receivedMember.ID())
-			ConsolePrintf("MEMBER_JOIN: Added new member: %s during merge \n", receivedMember.ID())
 			continue
 		} else if !exists && receivedMember.Status == StatusDead {
 			continue // Handle edge case where a received dead node is not in local membership list in swim
@@ -184,6 +166,7 @@ func mergeMembership(server *Server, receivedMembers []Member, senderId string) 
 			if receivedMember.Status == StatusSuspect && localMember.Status == StatusAlive &&
 				receivedMember.Incarnation >= localMember.Incarnation {
 				// We are alive but others think we are suspect - increment incarnation
+				// TODO: Dont update everytime. Update only if local incarnation is less or equal
 				server.IncarnationNumber++
 				localMember.Incarnation = server.IncarnationNumber
 				localMember.LastUpdated = time.Now()

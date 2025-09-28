@@ -16,10 +16,11 @@ var deadTimeout = 2 * time.Second
 var cleanUpTimeout = 2 * time.Second
 var gossipOrSwimPingInterval = 100 * time.Millisecond
 var PingFanout = 1
-var GossipFanout = 1
+var GossipFanout = 4
 var InitialProtocol = PingAckProtocol
 var InitialSuspicion = NoSuspect
 var InitialMessageDropRate = 0.0
+var AckTimeout = 1 * time.Second
 
 // Use gossipOrSwimPingInterval and GossipFanout in conjunction
 

@@ -2,8 +2,38 @@ package main
 
 import (
 	"fmt"
+	"sync"
 	"time"
 )
+
+// BandwidthStats tracks network bandwidth usage
+type BandwidthStats struct {
+	BytesSent     uint64
+	BytesReceived uint64
+	mu            sync.RWMutex
+}
+
+func (bs *BandwidthStats) AddSent(bytes uint64) {
+	bs.mu.Lock()
+	bs.BytesSent += bytes
+	bs.mu.Unlock()
+}
+
+func (bs *BandwidthStats) AddReceived(bytes uint64) {
+	bs.mu.Lock()
+	bs.BytesReceived += bytes
+	bs.mu.Unlock()
+}
+
+func (bs *BandwidthStats) GetAndReset() (sent, received uint64) {
+	bs.mu.Lock()
+	defer bs.mu.Unlock()
+	sent = bs.BytesSent
+	received = bs.BytesReceived
+	bs.BytesSent = 0
+	bs.BytesReceived = 0
+	return
+}
 
 type Server struct {
 	Addr                  string
@@ -13,6 +43,7 @@ type Server struct {
 	HeartbeatCounter      uint64
 	IsIntroducer          bool
 	Members               *MembershipList
+	BandwidthStats        *BandwidthStats
 }
 
 func (s *Server) ID() string {
@@ -41,6 +72,7 @@ func NewServer(addr, introducerAddr string, isIntroducer bool) *Server {
 		HeartbeatCounter:      member.Heartbeat,
 		IsIntroducer:          isIntroducer,
 		Members:               membershipList,
+		BandwidthStats:        &BandwidthStats{},
 	}
 }
 
@@ -73,6 +105,20 @@ func (s *Server) sendTimelyMessagesAsPerProtocol(interval time.Duration) {
 			s.gossipSend(Config.Fanout)
 		case PingAckProtocol:
 			s.pingSend(Config.Fanout)
+		}
+	}
+}
+
+// Monitors and displays bandwidth usage per second
+func (s *Server) monitorBandwidth() {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		sent, received := s.BandwidthStats.GetAndReset()
+		if sent > 0 || received > 0 {
+			LogInfo(true, "BANDWIDTH_%s_%s: Sent: %d bytes/s (%.2f KB/s), Received: %d bytes/s (%.2f KB/s), Total: %d bytes/s (%.2f KB/s),\n",
+				Config.Protocol, Config.Suspicion, sent, float64(sent)/1024.0, received, float64(received)/1024.0, sent+received, float64(sent+received)/1024.0)
 		}
 	}
 }
