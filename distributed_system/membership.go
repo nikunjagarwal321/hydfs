@@ -53,7 +53,8 @@ func (ml *MembershipList) MarkSuspectIfNeeded(suspicionTimeout, deadTimeout, cle
 			case Suspect:
 				m.MarkSuspect()
 				toUpdate = append(toUpdate, m)
-				LogInfo(true, "FAILURE_DETECTED: Marked member as SUSPECT: %s", m.ID())
+				LogInfo(true, "SUSPECT_DETECTED: Marked member as SUSPECT: %s", m.ID())
+				ConsolePrintf("SUSPECT_DETECTED: Marked member as SUSPECT: %s\n", m.ID())
 				changed = true
 			case NoSuspect:
 				// In no-suspicion mode, only mark as dead if it crosses dead timeout
@@ -61,6 +62,7 @@ func (ml *MembershipList) MarkSuspectIfNeeded(suspicionTimeout, deadTimeout, cle
 					m.MarkDead()
 					toUpdate = append(toUpdate, m)
 					LogInfo(true, "FAILURE_DETECTED: Marked member as DEAD: %s", m.ID())
+					ConsolePrintf("FAILURE_DETECTED: Marked member as DEAD: %s\n", m.ID())
 					changed = true
 				}
 			}
@@ -68,10 +70,12 @@ func (ml *MembershipList) MarkSuspectIfNeeded(suspicionTimeout, deadTimeout, cle
 			m.MarkDead()
 			toUpdate = append(toUpdate, m)
 			LogInfo(true, "FAILURE_CONFIRMED: Marked suspected member as DEAD: %s", m.ID())
+			ConsolePrintf("FAILURE_CONFIRMED: Marked suspected member as DEAD: %s\n", m.ID())
 			changed = true
 		} else if m.Status == StatusDead && elapsed > cleanUpTimeout {
 			toRemove = append(toRemove, id)
 			LogInfo(true, "MEMBER_CLEANUP: Removed dead member from list: %s", id)
+			ConsolePrintf("MEMBER_CLEANUP: Removed dead member from list: %s\n", id)
 			changed = true
 		}
 	}
@@ -111,15 +115,29 @@ func (ml *MembershipList) GetAll() []Member {
 	return members
 }
 
-func (ml *MembershipList) Print() {
+func (ml *MembershipList) Print(printOnConsole bool) {
 	ml.mu.Lock()
 	defer ml.mu.Unlock()
-
-	ConsolePrintln("---- Membership List ----")
-	for _, member := range ml.nodes {
-		ConsolePrintf("Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.LastUpdated)
+	if printOnConsole {
+		ConsolePrintln("---- Membership List ----")
 	}
-	ConsolePrintln("-------------------------")
+	for _, member := range ml.nodes {
+		if Config.Protocol == GossipProtocol {
+			if printOnConsole {
+				ConsolePrintf("Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.LastUpdated.Format(time.RFC3339))
+			}
+			LogInfo(true, "Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.LastUpdated.Format(time.RFC3339))
+		}
+		if Config.Protocol == PingAckProtocol {
+			if printOnConsole {
+				ConsolePrintf("Member: %s | Status:  %s| Incarnation: %d\n", member.ID(), member.Status, member.Incarnation)
+			}
+			LogInfo(true, "Member: %s | Status:  %s| Incarnation: %d\n", member.ID(), member.Status, member.Incarnation)
+		}
+	}
+	if printOnConsole {
+		ConsolePrintln("-------------------------")
+	}
 }
 
 func (ml *MembershipList) PrintSuspectedNodes() {
@@ -129,7 +147,14 @@ func (ml *MembershipList) PrintSuspectedNodes() {
 	ConsolePrintln("---- Membership List ----")
 	for _, member := range ml.nodes {
 		if member.Status == StatusSuspect {
-			ConsolePrintf("Suspected Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.LastUpdated)
+			if Config.Protocol == GossipProtocol {
+				ConsolePrintf("Suspected Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.LastUpdated.Format(time.RFC3339))
+				LogInfo(true, "Suspected Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.LastUpdated.Format(time.RFC3339))
+			}
+			if Config.Protocol == PingAckProtocol {
+				ConsolePrintf("Suspected Member: %s | Status:  %s| Incarnation: %d\n", member.ID(), member.Status, member.Incarnation)
+				LogInfo(true, "Suspected Member: %s | Status:  %s| Incarnation: %d\n", member.ID(), member.Status, member.Incarnation)
+			}
 		}
 	}
 	ConsolePrintln("-------------------------")

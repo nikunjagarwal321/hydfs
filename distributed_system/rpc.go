@@ -149,7 +149,7 @@ func (s *Server) handleCommand(cmd string) {
 
 	switch command {
 	case "list_mem":
-		s.Members.Print()
+		s.Members.Print(true)
 	case "list_self":
 		ConsolePrintf("Self ID: %s\n", s.ID())
 	case "leave":
@@ -211,6 +211,7 @@ func (s *Server) handleSwitch(protocolStr, suspicionStr string) {
 		return
 	}
 
+	//TODO: REVISIT HERE
 	SwitchProtocol(protocol, suspicion)
 
 	// Broadcast protocol switch to all other nodes in the membership list

@@ -62,6 +62,7 @@ func (ds *DistributedSystemService) Join(req *JoinRequest, resp *JoinResponse) e
 		req.Member.LastUpdated = time.Now()
 		ds.server.Members.AddOrUpdate(req.Member)
 		LogInfo(true, "MEMBER_JOIN: Introducer accepted new member: %s", req.Member.ID())
+		ConsolePrintf("MEMBER_JOIN: Introducer accepted new member: %s\n", req.Member.ID())
 		resp.Success = true
 		resp.Message = "Successfully joined the cluster"
 		resp.MembershipList = ds.server.Members.GetAll()
