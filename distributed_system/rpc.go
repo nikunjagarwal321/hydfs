@@ -24,8 +24,8 @@ type RPCResponse struct {
 	ID     uint64      `json:"id"`
 }
 
-// makeRPCCall is a generic RPC call function over UDP
-func makeRPCCall(address string, method string, params interface{}, result interface{}) error {
+// makeRPCCall is a generic RPC call function over UDP with bandwidth tracking
+func makeRPCCall(address string, method string, params interface{}, result interface{}, server *Server) error {
 	conn, err := net.Dial("udp", address)
 	if err != nil {
 		return fmt.Errorf("dial error: %w", err)
@@ -33,7 +33,7 @@ func makeRPCCall(address string, method string, params interface{}, result inter
 	defer conn.Close()
 
 	// Set timeout for the connection
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	conn.SetReadDeadline(time.Now().Add(AckTimeout))
 
 	// Create RPC message
 	rpcMsg := RPCMessage{
@@ -48,9 +48,14 @@ func makeRPCCall(address string, method string, params interface{}, result inter
 		return fmt.Errorf("marshal error: %w", err)
 	}
 
-	_, err = conn.Write(data)
+	bytesWritten, err := conn.Write(data)
 	if err != nil {
 		return fmt.Errorf("write error: %w", err)
+	}
+
+	// Track bytes sent
+	if server != nil && server.BandwidthStats != nil {
+		server.BandwidthStats.AddSent(uint64(bytesWritten))
 	}
 
 	// Read response
@@ -58,6 +63,11 @@ func makeRPCCall(address string, method string, params interface{}, result inter
 	n, err := conn.Read(buffer)
 	if err != nil {
 		return fmt.Errorf("read error: %w", err)
+	}
+
+	// Track bytes received
+	if server != nil && server.BandwidthStats != nil {
+		server.BandwidthStats.AddReceived(uint64(n))
 	}
 
 	var rpcResp RPCResponse
@@ -119,6 +129,7 @@ func (s *Server) StartRPCServer() error {
 	go s.sendTimelyMessagesAsPerProtocol(gossipOrSwimPingInterval)
 	go s.increaseHeartbeat(heartbeatInterval)
 	go s.backgroundCheckerRPC(suspicionCheckTimeout, suspicionTimeout, deadTimeout, cleanUpTimeout)
+	go s.monitorBandwidth()
 	go s.startCLI(cmdChan)
 
 	// main loop processes commands
@@ -221,7 +232,7 @@ func (s *Server) handleSwitch(protocolStr, suspicionStr string) {
 		// Skip self
 		if member.Address != s.Addr {
 			go func(nodeAddr string) {
-				resp, err := CallProtocolSwitch(nodeAddr, s.ID(), protocol, suspicion)
+				resp, err := CallProtocolSwitch(nodeAddr, s.ID(), protocol, suspicion, s)
 				if err != nil {
 					LogError(true, "Failed to send protocol switch to %s: %v", nodeAddr, err)
 				} else {
@@ -277,7 +288,7 @@ func (s *Server) notifyIntroducer() error {
 		LastUpdated:           time.Now(),
 	}
 
-	resp, err := CallJoin(s.IntroducerAddr, member)
+	resp, err := CallJoin(s.IntroducerAddr, member, s)
 	if err != nil {
 		LogError(true, "Failed to join cluster: %v", err)
 		return err
@@ -301,6 +312,11 @@ func (s *Server) listenForMessages(conn *net.UDPConn) {
 		if err != nil {
 			LogError(true, "Read error: %v", err)
 			continue
+		}
+
+		// Track bytes received
+		if s.BandwidthStats != nil {
+			s.BandwidthStats.AddReceived(uint64(n))
 		}
 
 		// Implement message drop simulation for testing network failures
@@ -404,7 +420,12 @@ func (s *Server) sendRPCResponse(conn *net.UDPConn, clientAddr *net.UDPAddr, id 
 		ID:     id,
 	}
 	data, _ := json.Marshal(resp)
-	conn.WriteToUDP(data, clientAddr)
+	bytesWritten, _ := conn.WriteToUDP(data, clientAddr)
+
+	// Track bytes sent
+	if s.BandwidthStats != nil {
+		s.BandwidthStats.AddSent(uint64(bytesWritten))
+	}
 }
 
 // sendRPCError sends an RPC error response
@@ -414,5 +435,10 @@ func (s *Server) sendRPCError(conn *net.UDPConn, clientAddr *net.UDPAddr, id uin
 		ID:    id,
 	}
 	data, _ := json.Marshal(resp)
-	conn.WriteToUDP(data, clientAddr)
+	bytesWritten, _ := conn.WriteToUDP(data, clientAddr)
+
+	// Track bytes sent
+	if s.BandwidthStats != nil {
+		s.BandwidthStats.AddSent(uint64(bytesWritten))
+	}
 }
