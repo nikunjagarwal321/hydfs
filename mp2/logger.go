@@ -19,7 +19,7 @@ var globalLogger *Logger
 // InitializeLogger sets up the global logger with file output
 func InitializeLogger(nodeName string) error {
 	// Create log directory if it doesn't exist
-	logDir := "../project/log"
+	logDir := "./log"
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return fmt.Errorf("failed to create log directory: %v", err)
 	}
