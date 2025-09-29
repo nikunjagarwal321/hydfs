@@ -162,7 +162,7 @@ func mergeMembership(server *Server, receivedMembers []Member, senderId string) 
 
 		// TODO: Move this to a diff function to make more modular
 		// Special case: Handle self-node with suspicion enabled
-		if Config.Suspicion == Suspect && receivedMember.ID() == server.ID() {
+		if receivedMember.ID() == server.ID() {
 			if receivedMember.Status == StatusSuspect && localMember.Status == StatusAlive &&
 				receivedMember.Incarnation >= localMember.Incarnation {
 				// We are alive but others think we are suspect - increment incarnation
