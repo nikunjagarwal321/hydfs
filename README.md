@@ -1,4 +1,8 @@
 # Distributed System
+Group Number : 37
+Teammates: nikunja2, akashe2
+
+
 ## Description 
 This Golang program implements a distributed membership system supporting two protocols, Gossip and PingAck, each with Suspect and NoSuspect modes. All configurations share a common membership list, and multiple background goroutines handle heartbeats, suspicion and failure tracking, message processing, command-line input, and periodic status updates. Nodes are evaluated for SUSPECT or DEAD status every T time based on configurable thresholds. The system uses a round-robin node selection with configurable fanout and message intervals, enabling timely failure detection, while maintaining moderate bandwidth usage. Both protocols share the suspicion logic, but differ in merging: Gossip propagates heartbeat counters and merges without waiting for acknowledgments, whereas PingAck piggybacks membership info on pings and ACKs and waits for responses. Merge rules prioritize failures, then higher incarnation numbers, followed by suspicion status, and finally heartbeat counters for Gossip, ensuring accurate and consistent membership state across nodes.
 
@@ -13,6 +17,7 @@ Run servers in each of the servers
 
 In each terminal, run:
 ```
+cd mp2
 go run . <VM_ID>
 ```
 Example:
