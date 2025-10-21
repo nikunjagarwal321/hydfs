@@ -79,6 +79,7 @@ func (s *Server) gossipSend(nodeCount int) {
 			Status:                m.Status,                // Essential for merge logic
 			Heartbeat:             m.Heartbeat,             // Used in gossip protocol
 			Incarnation:           m.Incarnation,           // Essential for merge logic
+			Hash:                  m.Hash,                  // Include hash for distributed hashing
 			// Skip LastUpdated - gets set to time.Now() during merge
 		}
 		membersList = append(membersList, optimizedMember)
@@ -115,6 +116,7 @@ func (s *Server) pingSend(nodeCount int) {
 			NodeCreationTimestamp: m.NodeCreationTimestamp, // Keep for ID generation
 			Status:                m.Status,                // Essential for merge logic
 			Incarnation:           m.Incarnation,           // Essential for merge logic
+			Hash:                  m.Hash,                  // Include hash for distributed hashing
 			// Skip Heartbeat - not used in PingAck protocol
 			// Skip LastUpdated - gets set to time.Now() during merge
 		}
@@ -152,7 +154,7 @@ func mergeMembership(server *Server, receivedMembers []Member, senderId string) 
 			// New member, add it
 			receivedMember.LastUpdated = time.Now()
 			server.Members.AddOrUpdate(receivedMember)
-			LogInfo(true, "MEMBER_JOIN: Added new member: %s during merge", receivedMember.ID())
+			LogInfo(true, "MEMBER_JOIN: Added new member: %s with hash: %s during merge", receivedMember.ID(), receivedMember.Hash)
 			continue
 		} else if !exists && receivedMember.Status == StatusDead {
 			continue // Handle edge case where a received dead node is not in local membership list in swim

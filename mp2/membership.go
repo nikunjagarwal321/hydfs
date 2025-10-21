@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sort"
 	"sync"
 	"time"
 )
@@ -121,18 +122,31 @@ func (ml *MembershipList) Print(printOnConsole bool) {
 	if printOnConsole {
 		ConsolePrintln("---- Membership List ----")
 	}
+
+	// Collect all members and sort by node ID
+	var members []Member
 	for _, member := range ml.nodes {
+		members = append(members, member)
+	}
+
+	// Sort by node ID
+	sort.Slice(members, func(i, j int) bool {
+		return members[i].ID() < members[j].ID()
+	})
+
+	// Print sorted members
+	for _, member := range members {
 		if Config.Protocol == GossipProtocol {
 			if printOnConsole {
-				ConsolePrintf("Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.LastUpdated.Format(time.RFC3339))
+				ConsolePrintf("Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| Hash: %s| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.Hash, member.LastUpdated.Format(time.RFC3339))
 			}
-			LogInfo(true, "Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.LastUpdated.Format(time.RFC3339))
+			LogInfo(true, "Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| Hash: %s| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.Hash, member.LastUpdated.Format(time.RFC3339))
 		}
 		if Config.Protocol == PingAckProtocol {
 			if printOnConsole {
-				ConsolePrintf("Member: %s | Status:  %s| Incarnation: %d\n", member.ID(), member.Status, member.Incarnation)
+				ConsolePrintf("Member: %s | Status:  %s| Incarnation: %d| Hash: %s\n", member.ID(), member.Status, member.Incarnation, member.Hash)
 			}
-			LogInfo(true, "Member: %s | Status:  %s| Incarnation: %d\n", member.ID(), member.Status, member.Incarnation)
+			LogInfo(true, "Member: %s | Status:  %s| Incarnation: %d| Hash: %s\n", member.ID(), member.Status, member.Incarnation, member.Hash)
 		}
 	}
 	if printOnConsole {
@@ -148,12 +162,12 @@ func (ml *MembershipList) PrintSuspectedNodes() {
 	for _, member := range ml.nodes {
 		if member.Status == StatusSuspect {
 			if Config.Protocol == GossipProtocol {
-				ConsolePrintf("Suspected Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.LastUpdated.Format(time.RFC3339))
-				LogInfo(true, "Suspected Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.LastUpdated.Format(time.RFC3339))
+				ConsolePrintf("Suspected Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| Hash: %s| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.Hash, member.LastUpdated.Format(time.RFC3339))
+				LogInfo(true, "Suspected Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| Hash: %s| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.Hash, member.LastUpdated.Format(time.RFC3339))
 			}
 			if Config.Protocol == PingAckProtocol {
-				ConsolePrintf("Suspected Member: %s | Status:  %s| Incarnation: %d\n", member.ID(), member.Status, member.Incarnation)
-				LogInfo(true, "Suspected Member: %s | Status:  %s| Incarnation: %d\n", member.ID(), member.Status, member.Incarnation)
+				ConsolePrintf("Suspected Member: %s | Status:  %s| Incarnation: %d| Hash: %s\n", member.ID(), member.Status, member.Incarnation, member.Hash)
+				LogInfo(true, "Suspected Member: %s | Status:  %s| Incarnation: %d| Hash: %s\n", member.ID(), member.Status, member.Incarnation, member.Hash)
 			}
 		}
 	}

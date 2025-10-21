@@ -23,10 +23,11 @@ type Member struct {
 	Heartbeat             uint64    `json:"heartbeat"`
 	Incarnation           uint64    `json:"incarnation"`
 	LastUpdated           time.Time `json:"last_updated"`
+	Hash                  string    `json:"hash"`
 }
 
 func (m *Member) ID() string {
-	return fmt.Sprintf("%s-%d", m.Address, m.NodeCreationTimestamp.UnixNano())
+	return fmt.Sprintf("%s-%d", m.Address, m.NodeCreationTimestamp.Unix())
 }
 
 func GetAddressFromID(memberID string) string {

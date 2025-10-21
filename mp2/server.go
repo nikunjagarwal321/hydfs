@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/sha1"
 	"fmt"
+	"math/big"
 	"sync"
 	"time"
 )
@@ -44,6 +46,7 @@ type Server struct {
 	IsIntroducer          bool
 	Members               *MembershipList
 	BandwidthStats        *BandwidthStats
+	Hash                  string
 }
 
 func (s *Server) ID() string {
@@ -54,6 +57,10 @@ func (s *Server) ID() string {
 func NewServer(addr, introducerAddr string, isIntroducer bool) *Server {
 	// Adding itself in the membership based on the example in class
 	membershipList := NewMembershipList()
+
+	// Compute hash for this server
+	hashValue := HashToMbits(addr).String()
+
 	member := Member{
 		Address:               addr,
 		NodeCreationTimestamp: time.Now(),
@@ -61,6 +68,7 @@ func NewServer(addr, introducerAddr string, isIntroducer bool) *Server {
 		Heartbeat:             1,
 		Incarnation:           1,
 		LastUpdated:           time.Now(),
+		Hash:                  hashValue,
 	}
 	membershipList.AddOrUpdate(member)
 
@@ -73,6 +81,7 @@ func NewServer(addr, introducerAddr string, isIntroducer bool) *Server {
 		IsIntroducer:          isIntroducer,
 		Members:               membershipList,
 		BandwidthStats:        &BandwidthStats{},
+		Hash:                  hashValue,
 	}
 }
 
@@ -121,4 +130,20 @@ func (s *Server) monitorBandwidth() {
 				Config.Protocol, Config.Suspicion, sent, float64(sent)/1024.0, received, float64(received)/1024.0, sent+received, float64(sent+received)/1024.0)
 		}
 	}
+}
+
+// HashToMbits takes any input string (could be "IP:port" or a filename)
+// and hashes it down to an m-bit decimal value using Config.HashBits.
+func HashToMbits(input string) *big.Int {
+	// Compute SHA-1 hash
+	hash := sha1.Sum([]byte(input))
+
+	// Convert hash to big.Int
+	hashInt := new(big.Int).SetBytes(hash[:])
+
+	// Truncate to m bits: hash % 2^m
+	mod := new(big.Int).Lsh(big.NewInt(1), uint(Config.HashBits))
+	hashInt.Mod(hashInt, mod)
+
+	return hashInt
 }

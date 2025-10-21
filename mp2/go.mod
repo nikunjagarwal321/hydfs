@@ -1,3 +1,3 @@
-module distributed_system
+module mp2
 
 go 1.25.0

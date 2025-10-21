@@ -59,10 +59,13 @@ type ProtocolSwitchResponse struct {
 // Join handles new member joining
 func (ds *DistributedSystemService) Join(req *JoinRequest, resp *JoinResponse) error {
 	if ds.server.IsIntroducer {
+		// Compute hash for the new member
+		hashValue := HashToMbits(req.Member.Address).String()
+		req.Member.Hash = hashValue
 		req.Member.LastUpdated = time.Now()
 		ds.server.Members.AddOrUpdate(req.Member)
-		LogInfo(true, "MEMBER_JOIN: Introducer accepted new member: %s", req.Member.ID())
-		ConsolePrintf("MEMBER_JOIN: Introducer accepted new member: %s\n", req.Member.ID())
+		LogInfo(true, "MEMBER_JOIN: Introducer accepted new member: %s with hash: %s", req.Member.ID(), hashValue)
+		ConsolePrintf("MEMBER_JOIN: Introducer accepted new member: %s with hash: %s\n", req.Member.ID(), hashValue)
 		resp.Success = true
 		resp.Message = "Successfully joined the cluster"
 		resp.MembershipList = ds.server.Members.GetAll()

@@ -64,6 +64,7 @@ var Config = struct {
 	AllNodes        []string
 	Suspicion       SuspicionType
 	MessageDropRate float64 // Percentage of messages to drop (0.0 to 1.0)
+	HashBits        int     // Number of bits for hash function
 }{
 	IntroducerAddr:  "127.0.0.1:5000",
 	Protocol:        InitialProtocol,
@@ -71,6 +72,7 @@ var Config = struct {
 	AllNodes:        []string{},             // Will be populated dynamically
 	Suspicion:       InitialSuspicion,       // Enable suspicion mechanism by default
 	MessageDropRate: InitialMessageDropRate, // No message drop by default
+	HashBits:        8,                      // Default to 8 bits for hash function
 }
 
 // SwitchProtocol and ToggleSuspicion allows dynamic protocol and suspicion type switching at runtime
