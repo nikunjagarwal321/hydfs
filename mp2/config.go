@@ -58,21 +58,23 @@ var NodeMap = map[string]string{
 }
 
 var Config = struct {
-	IntroducerAddr  string
-	Protocol        ProtocolType
-	Fanout          int
-	AllNodes        []string
-	Suspicion       SuspicionType
-	MessageDropRate float64 // Percentage of messages to drop (0.0 to 1.0)
-	HashBits        int     // Number of bits for hash function
+	IntroducerAddr    string
+	Protocol          ProtocolType
+	Fanout            int
+	AllNodes          []string
+	Suspicion         SuspicionType
+	MessageDropRate   float64 // Percentage of messages to drop (0.0 to 1.0)
+	HashBits          int     // Number of bits for hash function
+	ReplicationFactor int     // Number of replicas for HyDFS files
 }{
-	IntroducerAddr:  "127.0.0.1:5000",
-	Protocol:        InitialProtocol,
-	Fanout:          PingFanout,             // Number of random nodes to gossip to
-	AllNodes:        []string{},             // Will be populated dynamically
-	Suspicion:       InitialSuspicion,       // Enable suspicion mechanism by default
-	MessageDropRate: InitialMessageDropRate, // No message drop by default
-	HashBits:        8,                      // Default to 8 bits for hash function
+	IntroducerAddr:    "127.0.0.1:5000",
+	Protocol:          InitialProtocol,
+	Fanout:            PingFanout,             // Number of random nodes to gossip to
+	AllNodes:          []string{},             // Will be populated dynamically
+	Suspicion:         InitialSuspicion,       // Enable suspicion mechanism by default
+	MessageDropRate:   InitialMessageDropRate, // No message drop by default
+	HashBits:          8,                      // Default to 8 bits for hash function
+	ReplicationFactor: 3,                      // Default to 3 replicas (including primary)
 }
 
 // SwitchProtocol and ToggleSuspicion allows dynamic protocol and suspicion type switching at runtime

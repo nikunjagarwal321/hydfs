@@ -131,6 +131,7 @@ func (s *Server) StartRPCServer() error {
 	go s.backgroundCheckerRPC(suspicionCheckTimeout, suspicionTimeout, deadTimeout, cleanUpTimeout)
 	go s.monitorBandwidth()
 	go s.startCLI(cmdChan)
+	go s.StartHyDFSGRPCServer()
 
 	// main loop processes commands
 	for cmd := range cmdChan {
@@ -181,6 +182,13 @@ func (s *Server) handleCommand(cmd string) {
 			return
 		}
 		SetMessageDropRate(parts[1])
+	case "create":
+		if len(parts) != 3 {
+			ConsolePrintf("Invalid switch command format. Expected: create <localfilename> <HyDFSfilename>\n")
+			return
+		}
+		s.handleCreate(parts[1], parts[2])
+
 	default:
 		ConsolePrintf("Unknown command: %s\n", command)
 	}
