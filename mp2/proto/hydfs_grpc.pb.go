@@ -8,7 +8,6 @@ package proto
 
 import (
 	context "context"
-
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -20,7 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	HyDFSService_UploadFile_FullMethodName = "/hydfs.HyDFSService/UploadFile"
+	HyDFSService_FileTransfer_FullMethodName = "/proto.HyDFSService/FileTransfer"
 )
 
 // HyDFSServiceClient is the client API for HyDFSService service.
@@ -28,7 +27,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type HyDFSServiceClient interface {
 	// Client streams file chunks to the server
-	UploadFile(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[FileChunk, UploadStatus], error)
+	FileTransfer(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[FileChunk, UploadStatus], error)
 }
 
 type hyDFSServiceClient struct {
@@ -39,9 +38,9 @@ func NewHyDFSServiceClient(cc grpc.ClientConnInterface) HyDFSServiceClient {
 	return &hyDFSServiceClient{cc}
 }
 
-func (c *hyDFSServiceClient) UploadFile(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[FileChunk, UploadStatus], error) {
+func (c *hyDFSServiceClient) FileTransfer(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[FileChunk, UploadStatus], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &HyDFSService_ServiceDesc.Streams[0], HyDFSService_UploadFile_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &HyDFSService_ServiceDesc.Streams[0], HyDFSService_FileTransfer_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -50,14 +49,14 @@ func (c *hyDFSServiceClient) UploadFile(ctx context.Context, opts ...grpc.CallOp
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type HyDFSService_UploadFileClient = grpc.ClientStreamingClient[FileChunk, UploadStatus]
+type HyDFSService_FileTransferClient = grpc.ClientStreamingClient[FileChunk, UploadStatus]
 
 // HyDFSServiceServer is the server API for HyDFSService service.
 // All implementations must embed UnimplementedHyDFSServiceServer
 // for forward compatibility.
 type HyDFSServiceServer interface {
 	// Client streams file chunks to the server
-	UploadFile(grpc.ClientStreamingServer[FileChunk, UploadStatus]) error
+	FileTransfer(grpc.ClientStreamingServer[FileChunk, UploadStatus]) error
 	mustEmbedUnimplementedHyDFSServiceServer()
 }
 
@@ -68,8 +67,8 @@ type HyDFSServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedHyDFSServiceServer struct{}
 
-func (UnimplementedHyDFSServiceServer) UploadFile(grpc.ClientStreamingServer[FileChunk, UploadStatus]) error {
-	return status.Errorf(codes.Unimplemented, "method UploadFile not implemented")
+func (UnimplementedHyDFSServiceServer) FileTransfer(grpc.ClientStreamingServer[FileChunk, UploadStatus]) error {
+	return status.Errorf(codes.Unimplemented, "method FileTransfer not implemented")
 }
 func (UnimplementedHyDFSServiceServer) mustEmbedUnimplementedHyDFSServiceServer() {}
 func (UnimplementedHyDFSServiceServer) testEmbeddedByValue()                      {}
@@ -92,24 +91,24 @@ func RegisterHyDFSServiceServer(s grpc.ServiceRegistrar, srv HyDFSServiceServer)
 	s.RegisterService(&HyDFSService_ServiceDesc, srv)
 }
 
-func _HyDFSService_UploadFile_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(HyDFSServiceServer).UploadFile(&grpc.GenericServerStream[FileChunk, UploadStatus]{ServerStream: stream})
+func _HyDFSService_FileTransfer_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(HyDFSServiceServer).FileTransfer(&grpc.GenericServerStream[FileChunk, UploadStatus]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type HyDFSService_UploadFileServer = grpc.ClientStreamingServer[FileChunk, UploadStatus]
+type HyDFSService_FileTransferServer = grpc.ClientStreamingServer[FileChunk, UploadStatus]
 
 // HyDFSService_ServiceDesc is the grpc.ServiceDesc for HyDFSService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var HyDFSService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "hydfs.HyDFSService",
+	ServiceName: "proto.HyDFSService",
 	HandlerType: (*HyDFSServiceServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "UploadFile",
-			Handler:       _HyDFSService_UploadFile_Handler,
+			StreamName:    "FileTransfer",
+			Handler:       _HyDFSService_FileTransfer_Handler,
 			ClientStreams: true,
 		},
 	},

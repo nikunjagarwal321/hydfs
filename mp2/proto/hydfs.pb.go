@@ -129,16 +129,15 @@ var File_proto_hydfs_proto protoreflect.FileDescriptor
 
 const file_proto_hydfs_proto_rawDesc = "" +
 	"\n" +
-	"\x11proto/hydfs.proto\x12\x05hydfs\";\n" +
+	"\x11proto/hydfs.proto\x12\x05proto\";\n" +
 	"\tFileChunk\x12\x1a\n" +
 	"\bfilename\x18\x01 \x01(\tR\bfilename\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\"B\n" +
 	"\fUploadStatus\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage2E\n" +
-	"\fHyDFSService\x125\n" +
-	"\n" +
-	"UploadFile\x12\x10.hydfs.FileChunk\x1a\x13.hydfs.UploadStatus(\x01B\bZ\x06proto/b\x06proto3"
+	"\amessage\x18\x02 \x01(\tR\amessage2G\n" +
+	"\fHyDFSService\x127\n" +
+	"\fFileTransfer\x12\x10.proto.FileChunk\x1a\x13.proto.UploadStatus(\x01B\bZ\x06proto/b\x06proto3"
 
 var (
 	file_proto_hydfs_proto_rawDescOnce sync.Once
@@ -154,12 +153,12 @@ func file_proto_hydfs_proto_rawDescGZIP() []byte {
 
 var file_proto_hydfs_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_proto_hydfs_proto_goTypes = []any{
-	(*FileChunk)(nil),    // 0: hydfs.FileChunk
-	(*UploadStatus)(nil), // 1: hydfs.UploadStatus
+	(*FileChunk)(nil),    // 0: proto.FileChunk
+	(*UploadStatus)(nil), // 1: proto.UploadStatus
 }
 var file_proto_hydfs_proto_depIdxs = []int32{
-	0, // 0: hydfs.HyDFSService.UploadFile:input_type -> hydfs.FileChunk
-	1, // 1: hydfs.HyDFSService.UploadFile:output_type -> hydfs.UploadStatus
+	0, // 0: proto.HyDFSService.FileTransfer:input_type -> proto.FileChunk
+	1, // 1: proto.HyDFSService.FileTransfer:output_type -> proto.UploadStatus
 	1, // [1:2] is the sub-list for method output_type
 	0, // [0:1] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name

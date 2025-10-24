@@ -6,7 +6,7 @@ option go_package = "proto/"; // replace `yourmodule` with your Go module name
 
 service HyDFSService {
   // Client streams file chunks to the server
-  rpc UploadFile(stream FileChunk) returns (UploadStatus);
+  rpc FileTransfer(stream FileChunk) returns (UploadStatus);
 }
 
 message FileChunk {

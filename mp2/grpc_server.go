@@ -19,8 +19,8 @@ type HyDFSServer struct {
 	server *Server
 }
 
-// UploadFile handles streaming file upload
-func (h *HyDFSServer) UploadFile(stream grpc.ClientStreamingServer[pb.FileChunk, pb.UploadStatus]) error {
+// FileTransfer handles streaming file upload
+func (h *HyDFSServer) FileTransfer(stream grpc.ClientStreamingServer[pb.FileChunk, pb.UploadStatus]) error {
 	var filename string
 	var fileData []byte
 
@@ -66,7 +66,7 @@ func (h *HyDFSServer) UploadFile(stream grpc.ClientStreamingServer[pb.FileChunk,
 // saveFile saves the file to the hydfs directory
 func (h *HyDFSServer) saveFile(filename string, data []byte) error {
 	// Create hydfs directory if it doesn't exist
-	hydfsDir := "hydfs"
+	hydfsDir := "node2"
 	if err := os.MkdirAll(hydfsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create hydfs directory: %v", err)
 	}

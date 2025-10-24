@@ -23,7 +23,7 @@ func (s *Server) SendFileToNode(targetAddr string, filename string, data []byte)
 	defer conn.Close()
 
 	client := pb.NewHyDFSServiceClient(conn)
-	stream, err := client.UploadFile(context.Background())
+	stream, err := client.FileTransfer(context.Background())
 	if err != nil {
 		return fmt.Errorf("failed to create stream: %v", err)
 	}
