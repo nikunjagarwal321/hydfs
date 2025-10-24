@@ -1,140 +1,8 @@
 package main
 
 import (
-	"math/rand"
 	"time"
 )
-
-// GossipMessage carries membership updates
-type GossipMessage struct {
-	SenderAddress  string   `json:"sender_address"`
-	MembershipList []Member `json:"membership_list"`
-}
-
-// Global server instance (will be set in main)
-var globalServer *Server
-
-// Global variables for round-robin node selection
-var (
-	nodeOrder       []string // Ordered list of node addresses
-	currentPointer  int      // Current position in the order
-	lastMemberCount int      // To detect membership changes
-)
-
-func selectNextKNodes(k int, self string, membershipSnapshot map[string]Member) []string {
-	// Build candidates list
-	var candidates []string
-	for nodeId, member := range membershipSnapshot {
-		if nodeId != self && member.Status != StatusDead {
-			candidates = append(candidates, member.ID())
-		}
-	}
-
-	if len(candidates) == 0 {
-		return []string{}
-	}
-
-	// Rebuild order if membership changed
-	if len(candidates) != lastMemberCount || len(nodeOrder) == 0 {
-		nodeOrder = candidates
-		rand.Seed(time.Now().UnixNano())
-		rand.Shuffle(len(nodeOrder), func(i, j int) {
-			nodeOrder[i], nodeOrder[j] = nodeOrder[j], nodeOrder[i]
-		})
-		currentPointer = 0
-		lastMemberCount = len(candidates)
-	}
-
-	// Select next k nodes
-	if k > len(nodeOrder) {
-		k = len(nodeOrder)
-	}
-
-	result := make([]string, k)
-	for i := 0; i < k; i++ {
-		result[i] = nodeOrder[currentPointer]
-		currentPointer = (currentPointer + 1) % len(nodeOrder)
-	}
-
-	return result
-}
-
-// Send gossip to random nodes
-func (s *Server) gossipSend(nodeCount int) {
-
-	snapshot := s.Members.Snapshot()
-	nodes := selectNextKNodes(nodeCount, s.ID(), snapshot)
-
-	if len(nodes) == 0 {
-		return // No nodes to gossip to
-	}
-
-	// Create optimized membership list with only necessary fields
-	membersList := []Member{}
-	for _, m := range snapshot {
-		// Create minimal member with only essential fields
-		optimizedMember := Member{
-			Address:               m.Address,               // Keep for ID generation
-			NodeCreationTimestamp: m.NodeCreationTimestamp, // Keep for ID generation
-			Status:                m.Status,                // Essential for merge logic
-			Heartbeat:             m.Heartbeat,             // Used in gossip protocol
-			Incarnation:           m.Incarnation,           // Essential for merge logic
-			Hash:                  m.Hash,                  // Include hash for distributed hashing
-			// Skip LastUpdated - gets set to time.Now() during merge
-		}
-		membersList = append(membersList, optimizedMember)
-	}
-
-	for _, node := range nodes {
-		go func(nodeId string) {
-			resp, err := CallGossip(GetAddressFromID(nodeId), s.ID(), membersList, s)
-			if err != nil {
-				LogError(true, "Failed to send gossip to %s: %v", nodeId, err)
-			} else {
-				LogInfo(false, "Sent gossip to %s, success: %v", nodeId, resp.Success)
-			}
-		}(node)
-	}
-}
-
-// Send ping to random nodes
-func (s *Server) pingSend(nodeCount int) {
-
-	snapshot := s.Members.Snapshot()
-	nodes := selectNextKNodes(nodeCount, s.ID(), snapshot)
-
-	if len(nodes) == 0 {
-		return // No nodes to gossip to
-	}
-
-	// Create optimized membership list with only necessary fields for PingAck
-	membersList := []Member{}
-	for _, m := range snapshot {
-		// Create minimal member with only essential fields for PingAck protocol
-		optimizedMember := Member{
-			Address:               m.Address,               // Keep for ID generation
-			NodeCreationTimestamp: m.NodeCreationTimestamp, // Keep for ID generation
-			Status:                m.Status,                // Essential for merge logic
-			Incarnation:           m.Incarnation,           // Essential for merge logic
-			Hash:                  m.Hash,                  // Include hash for distributed hashing
-			// Skip Heartbeat - not used in PingAck protocol
-			// Skip LastUpdated - gets set to time.Now() during merge
-		}
-		membersList = append(membersList, optimizedMember)
-	}
-
-	for _, node := range nodes {
-		go func(nodeId string) {
-			resp, err := CallPing(GetAddressFromID(nodeId), s.ID(), membersList, s)
-			if err != nil {
-				LogError(true, "Failed to send ping to %s: %v", nodeId, err)
-			} else {
-				LogInfo(false, "PingAck: Received ACK from %s", nodeId)
-				mergeMembership(s, resp.MembershipList, nodeId)
-			}
-		}(node)
-	}
-}
 
 // mergeMembership merges the received membership list with local membership
 func mergeMembership(server *Server, receivedMembers []Member, senderId string) {
@@ -162,13 +30,11 @@ func mergeMembership(server *Server, receivedMembers []Member, senderId string) 
 
 		localMember := localSnapshot[receivedMember.ID()]
 
-		// TODO: Move this to a diff function to make more modular
 		// Special case: Handle self-node with suspicion enabled
 		if receivedMember.ID() == server.ID() {
 			if receivedMember.Status == StatusSuspect && localMember.Status == StatusAlive &&
 				receivedMember.Incarnation >= localMember.Incarnation {
 				// We are alive but others think we are suspect - increment incarnation
-				// TODO: Dont update everytime. Update only if local incarnation is less or equal
 				server.IncarnationNumber++
 				localMember.Incarnation = server.IncarnationNumber
 				localMember.LastUpdated = time.Now()
@@ -197,16 +63,11 @@ func mergeMembership(server *Server, receivedMembers []Member, senderId string) 
 
 }
 
-// if node is self, and status is suspect --> Treat differently. Change own status to alive and increase the incarnation number. Do this is separate function
-// If node is self and status is failed --> do nothing
-// Failed overrides everything, even incarnation number
-// Then, Incarnation number always takes priority in both the protocols
-// If Incarnation number is same, Suspect > Alive
-// If Incarnation number is also the same and status is also the same, then for Gossip --> Heartbeat counter takes priority
+// handleSuspicionMerge handles merge logic with suspicion enabled
+// Priority: Dead/VoluntaryLeave > Incarnation > Suspect > Alive > Heartbeat (Gossip only)
 func handleSuspicionMerge(localMember Member, receivedMember Member, receiverId string) Member {
 	// Rule 1: Dead/VoluntaryLeave always wins (overrides everything, even incarnation number)
 	if receivedMember.Status == StatusDead || receivedMember.Status == StatusVoluntaryLeave {
-		// receivedMember.LastUpdated = time.Now()
 		if localMember.Status != receivedMember.Status {
 			LogInfo(true, "MEMBER_STATUS_CHANGE: Member %s status changed to %s (from %s) during merge", receivedMember.ID(), receivedMember.Status, localMember.Status)
 		}
@@ -243,8 +104,6 @@ func handleSuspicionMerge(localMember Member, receivedMember Member, receiverId 
 					receivedMember.LastUpdated = time.Now()
 					return receivedMember
 				}
-				// For PingAck: just take received (more recent information)
-				// TODO : CHECK, THIS MIGHT BE CAUSING THE ISSUE
 			}
 		} else {
 			// Different status, same incarnation: Suspect > Alive
@@ -261,10 +120,9 @@ func handleSuspicionMerge(localMember Member, receivedMember Member, receiverId 
 	return localMember
 }
 
+// handleNoSuspicionMerge handles merge logic without suspicion
 func handleNoSuspicionMerge(localMember Member, receivedMember Member, receiverId string) Member {
-	// TODO: verify what will happen, if self node is dead
 	if receivedMember.Status == StatusDead || receivedMember.Status == StatusVoluntaryLeave {
-		// receivedMember.LastUpdated = time.Now()
 		if localMember.Status != receivedMember.Status {
 			LogInfo(true, "MEMBER_STATUS_CHANGE: Member %s status changed to %s (from %s) during merge", receivedMember.ID(), receivedMember.Status, localMember.Status)
 		}

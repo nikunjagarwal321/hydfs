@@ -1,12 +1,13 @@
 package main
 
 import (
-	"crypto/sha1"
 	"fmt"
-	"math/big"
 	"sync"
 	"time"
 )
+
+// Global server instance (will be set in main)
+var globalServer *Server
 
 // BandwidthStats tracks network bandwidth usage
 type BandwidthStats struct {
@@ -132,18 +133,32 @@ func (s *Server) monitorBandwidth() {
 	}
 }
 
-// HashToMbits takes any input string (could be "IP:port" or a filename)
-// and hashes it down to an m-bit decimal value using Config.HashBits.
-func HashToMbits(input string) *big.Int {
-	// Compute SHA-1 hash
-	hash := sha1.Sum([]byte(input))
+// increaseHeartbeat increments heartbeat counter for gossip protocol
+func (s *Server) increaseHeartbeat(heartbeatInterval time.Duration) {
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
 
-	// Convert hash to big.Int
-	hashInt := new(big.Int).SetBytes(hash[:])
+	for range ticker.C {
+		// Increment the server's heartbeat counter only for Gossip
+		if Config.Protocol == PingAckProtocol {
+			continue
+		}
 
-	// Truncate to m bits: hash % 2^m
-	mod := new(big.Int).Lsh(big.NewInt(1), uint(Config.HashBits))
-	hashInt.Mod(hashInt, mod)
+		s.HeartbeatCounter++
 
-	return hashInt
+		// Create updated member info for self
+		selfMember := Member{
+			Address:               s.Addr,
+			NodeCreationTimestamp: s.NodeCreationTimestamp,
+			Status:                StatusAlive,
+			Heartbeat:             s.HeartbeatCounter,
+			Incarnation:           s.IncarnationNumber,
+			LastUpdated:           time.Now(),
+			Hash:                  s.Hash, // Preserve the hash
+		}
+
+		// Update self in the membership list
+		s.Members.AddOrUpdate(selfMember)
+
+	}
 }

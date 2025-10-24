@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -28,14 +27,6 @@ type Member struct {
 
 func (m *Member) ID() string {
 	return fmt.Sprintf("%s-%d", m.Address, m.NodeCreationTimestamp.Unix())
-}
-
-func GetAddressFromID(memberID string) string {
-	lastDash := strings.LastIndex(memberID, "-")
-	if lastDash == -1 {
-		return ""
-	}
-	return memberID[:lastDash]
 }
 
 func (m *Member) MarkSuspect() {

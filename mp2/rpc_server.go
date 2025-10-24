@@ -1,101 +1,81 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net"
-	"os"
-	"strings"
 	"time"
 )
 
-// RPC Message wrapper
-type RPCMessage struct {
-	Method string      `json:"method"`
-	Params interface{} `json:"params"`
-	ID     uint64      `json:"id"`
+// RPC Service definitions
+type DistributedSystemService struct {
+	server *Server
 }
 
-type RPCResponse struct {
-	Result interface{} `json:"result"`
-	Error  string      `json:"error,omitempty"`
-	ID     uint64      `json:"id"`
+// Join handles new member joining
+func (ds *DistributedSystemService) Join(req *JoinRequest, resp *JoinResponse) error {
+	if ds.server.IsIntroducer {
+		// Compute hash for the new member
+		hashValue := HashToMbits(req.Member.Address).String()
+		req.Member.Hash = hashValue
+		req.Member.LastUpdated = time.Now()
+		ds.server.Members.AddOrUpdate(req.Member)
+		LogInfo(true, "MEMBER_JOIN: Introducer accepted new member: %s with hash: %s", req.Member.ID(), hashValue)
+		ConsolePrintf("MEMBER_JOIN: Introducer accepted new member: %s with hash: %s\n", req.Member.ID(), hashValue)
+		resp.Success = true
+		resp.Message = "Successfully joined the cluster"
+		resp.MembershipList = ds.server.Members.GetAll()
+		resp.Protocol = Config.Protocol
+		resp.Suspicion = Config.Suspicion
+		resp.IntroducerID = ds.server.ID()
+		return nil
+	}
+	resp.Success = false
+	resp.Message = "Not an introducer"
+	return nil
 }
 
-// makeRPCCall is a generic RPC call function over UDP with bandwidth tracking
-func makeRPCCall(address string, method string, params interface{}, result interface{}, server *Server) error {
-	conn, err := net.Dial("udp", address)
-	if err != nil {
-		return fmt.Errorf("dial error: %w", err)
+// Gossip handles gossip protocol messages
+func (ds *DistributedSystemService) Gossip(req *GossipRequest, resp *GossipResponse) error {
+	if globalServer != nil {
+		mergeMembership(globalServer, req.MembershipList, req.SenderID)
+		resp.Success = true
+	} else {
+		resp.Success = false
 	}
-	defer conn.Close()
+	return nil
+}
 
-	// Set timeout for the connection
-	conn.SetReadDeadline(time.Now().Add(AckTimeout))
+// Ping handles SWIM ping messages
+func (ds *DistributedSystemService) Ping(req *PingRequest, resp *Ack) error {
+	LogInfo(false, "PingAck: Received PING from %s", req.SenderID)
 
-	// Create RPC message
-	rpcMsg := RPCMessage{
-		Method: method,
-		Params: params,
-		ID:     uint64(time.Now().UnixNano()),
-	}
-
-	// Send request
-	data, err := json.Marshal(rpcMsg)
-	if err != nil {
-		return fmt.Errorf("marshal error: %w", err)
+	// Merge received membership list
+	if globalServer != nil {
+		mergeMembership(globalServer, req.MembershipList, req.SenderID)
 	}
 
-	bytesWritten, err := conn.Write(data)
-	if err != nil {
-		return fmt.Errorf("write error: %w", err)
-	}
-
-	// Track bytes sent
-	if server != nil && server.BandwidthStats != nil {
-		server.BandwidthStats.AddSent(uint64(bytesWritten))
-	}
-
-	// Read response
-	buffer := make([]byte, 4096)
-	n, err := conn.Read(buffer)
-	if err != nil {
-		return fmt.Errorf("read error: %w", err)
-	}
-
-	// Track bytes received
-	if server != nil && server.BandwidthStats != nil {
-		server.BandwidthStats.AddReceived(uint64(n))
-	}
-
-	var rpcResp RPCResponse
-	err = json.Unmarshal(buffer[:n], &rpcResp)
-	if err != nil {
-		return fmt.Errorf("unmarshal response error: %w", err)
-	}
-
-	if rpcResp.Error != "" {
-		return fmt.Errorf("RPC error: %s", rpcResp.Error)
-	}
-
-	// Convert result back to expected type
-	resultData, err := json.Marshal(rpcResp.Result)
-	if err != nil {
-		return fmt.Errorf("marshal result error: %w", err)
-	}
-
-	err = json.Unmarshal(resultData, result)
-	if err != nil {
-		return fmt.Errorf("unmarshal result error: %w", err)
-	}
+	resp.SenderID = ds.server.ID()
+	resp.MembershipList = ds.server.Members.GetAll()
 
 	return nil
 }
 
+// ProtocolSwitch handles protocol change broadcast messages
+func (ds *DistributedSystemService) ProtocolSwitch(req *ProtocolSwitchRequest, resp *ProtocolSwitchResponse) error {
+	LogInfo(true, "Received protocol switch request from %s: Protocol=%s, Suspicion=%s",
+		req.SenderID, req.Protocol, req.Suspicion)
+
+	// Apply the protocol switch
+	SwitchProtocol(req.Protocol, req.Suspicion)
+
+	resp.Success = true
+	LogInfo(true, "Successfully switched protocol to: %s, %s", req.Protocol, req.Suspicion)
+	return nil
+}
+
 // StartRPCServer starts the RPC server with UDP transport
-// ADD ALL LOGIC TO BE RUN IN PARALLEL HERE
 func (s *Server) StartRPCServer() error {
 	addr, err := net.ResolveUDPAddr("udp", s.Addr)
 	if err != nil {
@@ -140,152 +120,6 @@ func (s *Server) StartRPCServer() error {
 	return nil
 }
 
-func (s *Server) startCLI(cmdChan chan<- string) {
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		cmdChan <- scanner.Text()
-	}
-	if err := scanner.Err(); err != nil {
-		LogError(true, "Error reading input: %v", err)
-	}
-}
-
-func (s *Server) handleCommand(cmd string) {
-	// Split command into parts at the beginning
-	parts := strings.Fields(strings.TrimSpace(cmd))
-	if len(parts) == 0 {
-		return
-	}
-
-	command := parts[0]
-
-	switch command {
-	case "list_mem":
-		s.Members.Print(true)
-	case "list_self":
-		ConsolePrintf("Self ID: %s\n", s.ID())
-	case "leave":
-		s.leaveGroup()
-	case "display_suspects":
-		s.Members.PrintSuspectedNodes()
-	case "display_protocol":
-		printCurrentProtocol()
-	case "switch":
-		if len(parts) != 3 {
-			ConsolePrintf("Invalid switch command format. Expected: switch <protocol> <suspicion>\n")
-			return
-		}
-		s.handleSwitch(parts[1], parts[2])
-	case "drop":
-		if len(parts) != 2 {
-			ConsolePrintf("Invalid drop command format. Expected: drop <percentage>\n")
-			return
-		}
-		SetMessageDropRate(parts[1])
-	case "create":
-		if len(parts) != 3 {
-			ConsolePrintf("Invalid switch command format. Expected: create <localfilename> <HyDFSfilename>\n")
-			return
-		}
-		s.handleCreate(parts[1], parts[2])
-
-	default:
-		ConsolePrintf("Unknown command: %s\n", command)
-	}
-}
-
-func (s *Server) leaveGroup() {
-	LogInfo(true, "Initiating graceful leave from the group...")
-
-	// Get current membership snapshot
-	snapshot := s.Members.Snapshot()
-	selfMember, exists := snapshot[s.ID()]
-
-	if !exists {
-		LogError(true, "Error: Self not found in membership list")
-		return
-	}
-
-	// Mark self as voluntarily leaving
-	selfMember.MarkVoluntaryLeave()
-	selfMember.Incarnation = s.IncarnationNumber // Use current incarnation
-	s.Members.AddOrUpdate(selfMember)
-
-	LogInfo(true, "MEMBER_LEAVE: Marked self as voluntarily leaving: %s", s.ID())
-}
-
-func (s *Server) handleSwitch(protocolStr, suspicionStr string) {
-	protocolStr = strings.ToLower(protocolStr)
-	suspicionStr = strings.ToLower(suspicionStr)
-
-	protocol, ok := ProtocolMap[protocolStr]
-	if !ok {
-		ConsolePrintf("Invalid protocol '%s'\n", protocolStr)
-		return
-	}
-
-	suspicion, ok := SuspicionMap[suspicionStr]
-	if !ok {
-		ConsolePrintf("Invalid suspicion type '%s'\n", suspicionStr)
-		return
-	}
-
-	//TODO: REVISIT HERE
-	SwitchProtocol(protocol, suspicion)
-
-	// Broadcast protocol switch to all other nodes in the membership list
-	snapshot := s.Members.Snapshot()
-
-	for _, member := range snapshot {
-		// Skip self
-		if member.Address != s.Addr {
-			go func(nodeAddr string) {
-				resp, err := CallProtocolSwitch(nodeAddr, s.ID(), protocol, suspicion, s)
-				if err != nil {
-					LogError(true, "Failed to send protocol switch to %s: %v", nodeAddr, err)
-				} else {
-					LogInfo(true, "Sent protocol switch to %s, success: %v", nodeAddr, resp.Success)
-				}
-			}(member.Address)
-		}
-	}
-
-	ConsolePrintln("Protocol switch broadcast completed")
-}
-
-func printCurrentProtocol() {
-	ConsolePrintf("Current Protocol: %s | Suspicion: %s | Message Drop Rate: %.2f%%\n",
-		Config.Protocol, Config.Suspicion, Config.MessageDropRate*100)
-}
-
-func (s *Server) increaseHeartbeat(heartbeatInterval time.Duration) {
-	ticker := time.NewTicker(heartbeatInterval)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		// Increment the server's heartbeat counter only for PingAck
-		if Config.Protocol == PingAckProtocol {
-			continue
-		}
-
-		s.HeartbeatCounter++
-
-		// Create updated member info for self
-		selfMember := Member{
-			Address:               s.Addr,
-			NodeCreationTimestamp: s.NodeCreationTimestamp,
-			Status:                StatusAlive,
-			Heartbeat:             s.HeartbeatCounter,
-			Incarnation:           s.IncarnationNumber,
-			LastUpdated:           time.Now(),
-		}
-
-		// Update self in the membership list
-		s.Members.AddOrUpdate(selfMember)
-
-	}
-}
-
 func (s *Server) notifyIntroducer() error {
 	member := Member{
 		Address:               s.Addr,
@@ -294,6 +128,7 @@ func (s *Server) notifyIntroducer() error {
 		Heartbeat:             s.HeartbeatCounter,
 		Incarnation:           s.IncarnationNumber,
 		LastUpdated:           time.Now(),
+		Hash:                  s.Hash, // Include hash
 	}
 
 	resp, err := CallJoin(s.IntroducerAddr, member, s)

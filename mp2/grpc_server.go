@@ -1,19 +1,16 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	pb "distributed_log_query/proto"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // HyDFSServer implements the gRPC HyDFSService
@@ -116,71 +113,4 @@ func (s *Server) StartHyDFSGRPCServer() {
 	if err := grpcServer.Serve(lis); err != nil {
 		LogError(true, "Failed to serve gRPC: %v", err)
 	}
-}
-
-// SendFileToNode sends a file to a target node via gRPC streaming
-func (s *Server) SendFileToNode(targetAddr string, filename string, data []byte) error {
-	// Convert UDP address to gRPC address
-	grpcAddr := convertToGRPCAddress(targetAddr)
-
-	// Connect to the target node
-	conn, err := grpc.Dial(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return fmt.Errorf("failed to connect to %s: %v", grpcAddr, err)
-	}
-	defer conn.Close()
-
-	client := pb.NewHyDFSServiceClient(conn)
-	stream, err := client.UploadFile(context.Background())
-	if err != nil {
-		return fmt.Errorf("failed to create stream: %v", err)
-	}
-
-	// Send file in chunks (64KB chunks)
-	chunkSize := 64 * 1024
-	for i := 0; i < len(data); i += chunkSize {
-		end := i + chunkSize
-		if end > len(data) {
-			end = len(data)
-		}
-
-		chunk := &pb.FileChunk{
-			Filename: filename,
-			Data:     data[i:end],
-		}
-
-		if err := stream.Send(chunk); err != nil {
-			return fmt.Errorf("failed to send chunk: %v", err)
-		}
-	}
-
-	// Close and receive response
-	status, err := stream.CloseAndRecv()
-	if err != nil {
-		return fmt.Errorf("failed to close stream: %v", err)
-	}
-
-	if !status.GetSuccess() {
-		return fmt.Errorf("upload failed: %s", status.GetMessage())
-	}
-
-	ConsolePrintf("File sent to %s (gRPC: %s): %s\n", targetAddr, grpcAddr, status.GetMessage())
-	return nil
-}
-
-// convertToGRPCAddress converts UDP address to gRPC address (port + 1000)
-func convertToGRPCAddress(udpAddr string) string {
-	parts := strings.Split(udpAddr, ":")
-	if len(parts) != 2 {
-		return udpAddr
-	}
-
-	host := parts[0]
-	port, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return udpAddr
-	}
-
-	grpcPort := port + 1000
-	return fmt.Sprintf("%s:%d", host, grpcPort)
 }

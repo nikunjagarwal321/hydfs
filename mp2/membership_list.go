@@ -45,8 +45,14 @@ func (ml *MembershipList) sortNodes() {
 
 	sort.Slice(ml.nodes, func(i, j int) bool {
 		// Convert hash strings to big.Int for proper numeric comparison
-		hashI, _ := new(big.Int).SetString(ml.nodes[i].Hash, 10)
-		hashJ, _ := new(big.Int).SetString(ml.nodes[j].Hash, 10)
+		hashI, okI := new(big.Int).SetString(ml.nodes[i].Hash, 10)
+		hashJ, okJ := new(big.Int).SetString(ml.nodes[j].Hash, 10)
+
+		// Handle invalid hashes
+		if !okI || !okJ {
+			return ml.nodes[i].Hash < ml.nodes[j].Hash // Fallback to string comparison
+		}
+
 		return hashI.Cmp(hashJ) < 0
 	})
 }

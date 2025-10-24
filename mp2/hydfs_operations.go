@@ -56,7 +56,11 @@ func (s *Server) findTargetNodes(fileHash string, replicationFactor int) []Membe
 	}
 
 	// Convert file hash to big.Int for comparison
-	fileHashInt, _ := new(big.Int).SetString(fileHash, 10)
+	fileHashInt, ok := new(big.Int).SetString(fileHash, 10)
+	if !ok {
+		ConsolePrintf("Invalid file hash: %s\n", fileHash)
+		return []Member{}
+	}
 
 	// Find primary node (first node with hash >= file hash)
 	primaryIndex := -1
@@ -65,7 +69,11 @@ func (s *Server) findTargetNodes(fileHash string, replicationFactor int) []Membe
 			continue
 		}
 
-		memberHashInt, _ := new(big.Int).SetString(member.Hash, 10)
+		memberHashInt, ok := new(big.Int).SetString(member.Hash, 10)
+		if !ok {
+			continue // Skip members with invalid hash
+		}
+
 		if memberHashInt.Cmp(fileHashInt) >= 0 {
 			primaryIndex = i
 			break
