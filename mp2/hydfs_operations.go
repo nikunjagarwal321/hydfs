@@ -38,6 +38,9 @@ func (s *Server) handleCreate(localFilename, hyDFSfilename string) {
 	ConsolePrintf("Read file %s (%d bytes)\n", localFilename, len(fileData))
 
 	// Send file to target nodes
+	//TODO : Send file to all replicas that are ALIVE but wait for only 1 response(W = 1, R = 1). Use go-routines
+	//TODO : If all replicas are dead, FAIL the operation.
+	//TODO: During read / write, only wait for one replica's response. Merge will guarantee eventual consistency.
 	for _, targetMember := range targetMembers {
 		ConsolePrintf("Sending file to %s...\n", convertToGRPCAddress(targetMember.Address))
 		if err := s.SendFileToNode(targetMember.Address, hyDFSfilename, fileData); err != nil {
@@ -105,3 +108,5 @@ func (s *Server) findTargetNodes(fileHash string, replicationFactor int) []Membe
 
 	return targetMembers
 }
+
+//TODO: Implement get, merge and append for HyDFS

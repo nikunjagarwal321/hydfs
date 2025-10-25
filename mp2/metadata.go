@@ -11,6 +11,7 @@ import (
 // ---------------------------
 
 // Metadata represents the top-level metadata structure.
+// TODO: If any other metadata is needed for HyDFS, add it here.
 type Metadata struct {
 	Files []FileMetadata `json:"files"`
 }

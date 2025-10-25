@@ -75,6 +75,7 @@ var Config = struct {
 	MessageDropRate:   InitialMessageDropRate, // No message drop by default
 	HashBits:          8,                      // Default to 8 bits for hash function
 	ReplicationFactor: 3,                      // Default to 3 replicas (including primary)
+	//TODO : Check if any other config is needed for HyDFS
 }
 
 // SwitchProtocol and ToggleSuspicion allows dynamic protocol and suspicion type switching at runtime

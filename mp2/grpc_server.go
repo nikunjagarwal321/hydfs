@@ -64,9 +64,10 @@ func (h *HyDFSServer) FileTransfer(stream grpc.ClientStreamingServer[pb.FileChun
 }
 
 // saveFile saves the file to the hydfs directory
+// TODO : Create the metadata object (maybe during startup) and save the file info to the metadata object.
 func (h *HyDFSServer) saveFile(filename string, data []byte) error {
 	// Create hydfs directory if it doesn't exist
-	hydfsDir := "node2"
+	hydfsDir := "hydfs"
 	if err := os.MkdirAll(hydfsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create hydfs directory: %v", err)
 	}

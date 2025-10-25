@@ -48,6 +48,7 @@ func (s *Server) handleCommand(cmd string) {
 			return
 		}
 		SetMessageDropRate(parts[1])
+	// Usage: create text file in mp2 directory and call command using "create <local filename> <HyDFS filename>"
 	case "create":
 		if len(parts) != 3 {
 			ConsolePrintf("Invalid switch command format. Expected: create <localfilename> <HyDFSfilename>\n")
@@ -55,6 +56,7 @@ func (s *Server) handleCommand(cmd string) {
 		}
 		s.handleCreate(parts[1], parts[2])
 
+	//TODO: Implement get, merge and append for HyDFS
 	default:
 		ConsolePrintf("Unknown command: %s\n", command)
 	}
