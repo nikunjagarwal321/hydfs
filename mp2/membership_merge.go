@@ -52,9 +52,9 @@ func mergeMembership(server *Server, receivedMembers []Member, senderId string) 
 
 		switch Config.Suspicion {
 		case Suspect:
-			updatedMember = handleSuspicionMerge(localMember, receivedMember, senderId)
+			updatedMember = handleSuspicionMerge(server, localMember, receivedMember, senderId)
 		case NoSuspect:
-			updatedMember = handleNoSuspicionMerge(localMember, receivedMember, senderId)
+			updatedMember = handleNoSuspicionMerge(server, localMember, receivedMember, senderId)
 		}
 
 		server.Members.AddOrUpdate(updatedMember)
@@ -65,9 +65,10 @@ func mergeMembership(server *Server, receivedMembers []Member, senderId string) 
 
 // handleSuspicionMerge handles merge logic with suspicion enabled
 // Priority: Dead/VoluntaryLeave > Incarnation > Suspect > Alive > Heartbeat (Gossip only)
-func handleSuspicionMerge(localMember Member, receivedMember Member, receiverId string) Member {
+func handleSuspicionMerge(server *Server, localMember Member, receivedMember Member, receiverId string) Member {
 	// Rule 1: Dead/VoluntaryLeave always wins (overrides everything, even incarnation number)
 	if receivedMember.Status == StatusDead || receivedMember.Status == StatusVoluntaryLeave {
+		handleDeadNode(server, receivedMember)
 		if localMember.Status != receivedMember.Status {
 			LogInfo(true, "MEMBER_STATUS_CHANGE: Member %s status changed to %s (from %s) during merge", receivedMember.ID(), receivedMember.Status, localMember.Status)
 		}
@@ -121,7 +122,7 @@ func handleSuspicionMerge(localMember Member, receivedMember Member, receiverId 
 }
 
 // handleNoSuspicionMerge handles merge logic without suspicion
-func handleNoSuspicionMerge(localMember Member, receivedMember Member, receiverId string) Member {
+func handleNoSuspicionMerge(server *Server, localMember Member, receivedMember Member, receiverId string) Member {
 	if receivedMember.Status == StatusDead || receivedMember.Status == StatusVoluntaryLeave {
 		if localMember.Status != receivedMember.Status {
 			LogInfo(true, "MEMBER_STATUS_CHANGE: Member %s status changed to %s (from %s) during merge", receivedMember.ID(), receivedMember.Status, localMember.Status)
@@ -174,5 +175,17 @@ func getStatusPriority(status Status) int {
 		return 1
 	default:
 		return 0
+	}
+}
+
+func handleDeadNode(server *Server, m Member) {
+	if _, exists := server.FailedPendingStabilization[m.ID()]; !exists {
+		server.FailedPendingStabilization[m.ID()] = FailedNode
+	}
+}
+
+func handleNewlyJoinedNode(server *Server, m Member) {
+	if _, exists := server.NewlyJoinedPendingStabilization[m.ID()]; !exists {
+		server.NewlyJoinedPendingStabilization[m.ID()] = NewlyJoined
 	}
 }

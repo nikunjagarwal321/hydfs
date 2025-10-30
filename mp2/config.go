@@ -21,6 +21,9 @@ var InitialProtocol = PingAckProtocol
 var InitialSuspicion = NoSuspect
 var InitialMessageDropRate = 0.0
 var AckTimeout = 1 * time.Second
+var ReadTimeout = 1 * time.Second
+var ReplicationFactor = 1
+var stabilizeInterval = 1000 * time.Millisecond
 
 // Use gossipOrSwimPingInterval and GossipFanout in conjunction
 
@@ -74,7 +77,7 @@ var Config = struct {
 	Suspicion:         InitialSuspicion,       // Enable suspicion mechanism by default
 	MessageDropRate:   InitialMessageDropRate, // No message drop by default
 	HashBits:          8,                      // Default to 8 bits for hash function
-	ReplicationFactor: 3,                      // Default to 3 replicas (including primary)
+	ReplicationFactor: ReplicationFactor,      // Default to 3 replicas (including primary)
 	//TODO : Check if any other config is needed for HyDFS
 }
 

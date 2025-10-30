@@ -51,10 +51,22 @@ func (s *Server) handleCommand(cmd string) {
 	// Usage: create text file in mp2 directory and call command using "create <local filename> <HyDFS filename>"
 	case "create":
 		if len(parts) != 3 {
-			ConsolePrintf("Invalid switch command format. Expected: create <localfilename> <HyDFSfilename>\n")
+			ConsolePrintf("Invalid create command format. Expected: create <localfilename> <HyDFSfilename>\n")
 			return
 		}
 		s.handleCreate(parts[1], parts[2])
+	case "get":
+		if len(parts) != 3 {
+			ConsolePrintf("Invalid get command format. Expected: get <HyDFSfilename> <localfilename>\n")
+			return
+		}
+		s.handleGet(parts[1], parts[2])
+	case "append":
+		if len(parts) != 3 {
+			ConsolePrintf("Invalid appen command format. Expected: append <localfilename> <HyDFSfilename>\n")
+			return
+		}
+		s.handleAppend(parts[1], parts[2])
 
 	//TODO: Implement get, merge and append for HyDFS
 	default:

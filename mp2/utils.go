@@ -10,7 +10,7 @@ import (
 
 // HashToMbits takes any input string (could be "IP:port" or a filename)
 // and hashes it down to an m-bit decimal value using Config.HashBits.
-func HashToMbits(input string) *big.Int {
+func HashToMbits(input string) big.Int {
 	// Compute SHA-1 hash
 	hash := sha1.Sum([]byte(input))
 
@@ -21,7 +21,7 @@ func HashToMbits(input string) *big.Int {
 	mod := new(big.Int).Lsh(big.NewInt(1), uint(Config.HashBits))
 	hashInt.Mod(hashInt, mod)
 
-	return hashInt
+	return *hashInt
 }
 
 // GetAddressFromID extracts address from member ID
