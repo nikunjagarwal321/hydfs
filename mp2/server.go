@@ -150,13 +150,15 @@ func (s *Server) stabilizeUpdatedNodes(interval time.Duration) {
 		for nodeID, status := range s.FailedPendingStabilization {
 			if status == FailedNode {
 				s.FailedPendingStabilization[nodeID] = InProgressNode
-				s.handleFailedNode(nodeID)
+				s.handleReplicationWindowChange(nodeID)
+				s.FailedPendingStabilization[nodeID] = ProcessedNode
 			}
 		}
 		for nodeID, status := range s.NewlyJoinedPendingStabilization {
 			if status == NewlyJoined {
 				s.NewlyJoinedPendingStabilization[nodeID] = InProgressNode
-				s.handleNewlyJoinedNode(nodeID)
+				s.handleReplicationWindowChange(nodeID)
+				s.FailedPendingStabilization[nodeID] = ProcessedNode
 			}
 		}
 	}
@@ -304,15 +306,33 @@ func loadAppendData(app AppendInfo) []byte {
 	return data
 }
 
-func (s *Server) handleFailedNode(nodeID string) {
-	// TODO: Actual stabilization logic for failed nodes to be implemented as per requirements.
-	s.stabilizeRing()
-	ConsolePrintf("Handling stabilization for failed node: %s\n", nodeID)
-}
-
-func (s *Server) handleNewlyJoinedNode(nodeID string) {
-	// TODO: Actual stabilization logic for newly joined nodes to be implemented as per requirements.
-	ConsolePrintf("Handling stabilization for newly joined node: %s\n", nodeID)
+func (s *Server) handleReplicationWindowChange(nodeID string) {
+	members := s.Members.GetAll()
+	if len(members) == 0 {
+		return
+	}
+	changedIdx := -1
+	myIdx := -1
+	for i, m := range members {
+		if m.ID() == nodeID {
+			changedIdx = i
+		}
+		if m.ID() == s.ID() {
+			myIdx = i
+		}
+	}
+	if changedIdx == -1 || myIdx == -1 {
+		ConsolePrintf("Could not find node in ring for stabilization check\n")
+		return
+	}
+	for i := 1; i < Config.ReplicationFactor; i++ {
+		if ((myIdx + i) % len(members)) == changedIdx {
+			ConsolePrintf("Node %s in my replication set; triggering stabilization\n", nodeID)
+			s.stabilizeRing()
+			return
+		}
+	}
+	ConsolePrintf("Node %s is not in my replication set; no stabilization needed\n", nodeID)
 }
 
 // Monitors and displays bandwidth usage per second

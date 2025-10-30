@@ -18,17 +18,23 @@ func mergeMembership(server *Server, receivedMembers []Member, senderId string) 
 		// Skip processing if local member is already dead and received member is also dead
 		_, exists := localSnapshot[receivedMember.ID()]
 
+		// Track join: newly seen, not dead
 		if !exists && receivedMember.Status != StatusDead {
-			// New member, add it
 			receivedMember.LastUpdated = time.Now()
 			server.Members.AddOrUpdate(receivedMember)
 			LogInfo(true, "MEMBER_JOIN: Added new member: %s with hash: %s during merge", receivedMember.ID(), receivedMember.Hash)
+			handleNewlyJoinedNode(server, receivedMember)
 			continue
 		} else if !exists && receivedMember.Status == StatusDead {
-			continue // Handle edge case where a received dead node is not in local membership list in swim
+			continue // Ignore dead node join edge-case SWIM
 		}
 
 		localMember := localSnapshot[receivedMember.ID()]
+
+		// Track failure: present and alive in local, now seen as dead/left
+		if (localMember.Status == StatusAlive || localMember.Status == StatusSuspect) && (receivedMember.Status == StatusDead || receivedMember.Status == StatusVoluntaryLeave) {
+			handleDeadNode(server, receivedMember)
+		}
 
 		// Special case: Handle self-node with suspicion enabled
 		if receivedMember.ID() == server.ID() {
