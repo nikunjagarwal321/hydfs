@@ -13,17 +13,16 @@ var heartbeatInterval = 100 * time.Millisecond
 var suspicionCheckTimeout = 1 * time.Second
 var suspicionTimeout = 2 * time.Second
 var deadTimeout = 2 * time.Second
-var cleanUpTimeout = 2 * time.Second
+var cleanUpTimeout = 10 * time.Second
 var gossipOrSwimPingInterval = 100 * time.Millisecond
 var PingFanout = 1
 var GossipFanout = 1
-var InitialProtocol = PingAckProtocol
+var InitialProtocol = GossipProtocol
 var InitialSuspicion = NoSuspect
 var InitialMessageDropRate = 0.0
 var AckTimeout = 1 * time.Second
 var ReadTimeout = 1 * time.Second
-var ReplicationFactor = 1
-var stabilizeInterval = 1000 * time.Millisecond
+var ReplicationFactor = 3
 
 // Use gossipOrSwimPingInterval and GossipFanout in conjunction
 
@@ -78,7 +77,6 @@ var Config = struct {
 	MessageDropRate:   InitialMessageDropRate, // No message drop by default
 	HashBits:          8,                      // Default to 8 bits for hash function
 	ReplicationFactor: ReplicationFactor,      // Default to 3 replicas (including primary)
-	//TODO : Check if any other config is needed for HyDFS
 }
 
 // SwitchProtocol and ToggleSuspicion allows dynamic protocol and suspicion type switching at runtime

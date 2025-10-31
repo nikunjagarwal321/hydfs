@@ -185,13 +185,21 @@ func getStatusPriority(status Status) int {
 }
 
 func handleDeadNode(server *Server, m Member) {
-	if _, exists := server.FailedPendingStabilization[m.ID()]; !exists {
-		server.FailedPendingStabilization[m.ID()] = FailedNode
+	if server.FailedPendingStabilization[m.ID()] == FailedNode {
+		return
 	}
+	server.FailedPendingStabilization[m.ID()] = FailedNode
+	go func() {
+		server.handleReplicationWindowChange(m.ID())
+	}()
 }
 
 func handleNewlyJoinedNode(server *Server, m Member) {
-	if _, exists := server.NewlyJoinedPendingStabilization[m.ID()]; !exists {
-		server.NewlyJoinedPendingStabilization[m.ID()] = NewlyJoined
+	if server.NewlyJoinedPendingStabilization[m.ID()] == FailedNode {
+		return
 	}
+	server.NewlyJoinedPendingStabilization[m.ID()] = NewlyJoined
+	go func() {
+		server.handleReplicationWindowChange(m.ID())
+	}()
 }

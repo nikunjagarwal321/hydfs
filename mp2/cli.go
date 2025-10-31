@@ -67,8 +67,14 @@ func (s *Server) handleCommand(cmd string) {
 			return
 		}
 		s.handleAppend(parts[1], parts[2])
+		//TODO: test and implement other funcitons
+		// merge HyDFSfilename
+		// ls HyDFSfilename
+		// liststore (at any process/VM)
+		// getfromreplica VMaddress HyDFSfilename localfilename
+		// list_mem_ids
+		// multiappend(HyDFSfilename, VMi, … VMj, localfilenamei,....localfilenamej)
 
-	//TODO: Implement get, merge and append for HyDFS
 	default:
 		ConsolePrintf("Unknown command: %s\n", command)
 	}

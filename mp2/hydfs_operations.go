@@ -44,18 +44,38 @@ func (s *Server) handleCreate(localFilename, hyDFSfilename string) {
 
 	ConsolePrintf("Created file metadata: %+v\n", fileMetadata)
 
-	// Send file to target nodes
-	//TODO : Send file to all replicas that are ALIVE but wait for only 1 response(W = 1, R = 1). Use go-routines
-	//TODO : If all replicas are dead, FAIL the operation.
-	//TODO: During read / write, only wait for one replica's response. Merge will guarantee eventual consistency.
+	// Send file to target nodes (W=1, R=1: wait for only 1 successful response)
+	successChan := make(chan bool, len(targetMembers))
+	doneChan := make(chan struct{})
+
 	for _, targetMember := range targetMembers {
-		ConsolePrintf("Sending file to %s...\n", convertToGRPCAddress(targetMember.Address))
-		if err := s.SendFileToNode(targetMember.Address, fileData, fileMetadata); err != nil {
-			ConsolePrintf("Error sending file to %s: %v\n", convertToGRPCAddress(targetMember.Address), err)
-		}
+		go func(addr string) {
+			ConsolePrintf("Sending file to %s...\n", convertToGRPCAddress(addr))
+			if err := s.SendFileToNode(addr, fileData, fileMetadata); err != nil {
+				ConsolePrintf("Error sending file to %s: %v\n", convertToGRPCAddress(addr), err)
+				successChan <- false
+			} else {
+				successChan <- true
+			}
+		}(targetMember.Address)
 	}
 
-	ConsolePrintf("File creation completed: %s -> %s\n", localFilename, hyDFSfilename)
+	go func() {
+		successCount := 0
+		for i := 0; i < len(targetMembers); i++ {
+			if <-successChan {
+				successCount++
+			}
+		}
+		if successCount == 0 {
+			ConsolePrintf("CREATE FAILED: all replicas failed for file %s\n", hyDFSfilename)
+		} else {
+			ConsolePrintf("File creation completed: %s -> %s (received %d/%d responses)\n", localFilename, hyDFSfilename, successCount, len(targetMembers))
+		}
+		close(doneChan)
+	}()
+
+	<-doneChan
 }
 
 func (s *Server) handleGet(hyDFSfilename, localFilename string) {
@@ -196,4 +216,4 @@ func (s *Server) findTargetNodes(fileHash big.Int, replicationFactor int) []Memb
 	return targetMembers
 }
 
-//TODO: Implement get, merge and append for HyDFS
+// TODO: implement merge

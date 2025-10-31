@@ -1,14 +1,14 @@
 package main
 
 import (
+	"errors"
 	"math/big"
 	"sync"
-	"errors"
 )
 
 // Metadata is now concurrency safe with per-file locks
 type Metadata struct {
-	mu    sync.RWMutex             // map-level protection
+	mu    sync.RWMutex // map-level protection
 	Files map[string]FileMetadata
 	locks map[string]*sync.RWMutex // per-file locks
 }
@@ -32,7 +32,6 @@ type AppendInfo struct {
 	Size            int64
 }
 
-// TODO: add helper functions later if needed
 func (fileMeta *FileMetadata) insertAppend(newAppend AppendInfo) {
 	inserted := false
 	for i, a := range fileMeta.Appends {
@@ -76,7 +75,9 @@ func (m *Metadata) GetFile(filename string) (FileMetadata, bool) {
 	m.mu.RLock()
 	entry, ok := m.Files[filename]
 	m.mu.RUnlock()
-	if !ok { return FileMetadata{}, false }
+	if !ok {
+		return FileMetadata{}, false
+	}
 	lock := m.getFileLock(filename)
 	if lock != nil {
 		lock.RLock()

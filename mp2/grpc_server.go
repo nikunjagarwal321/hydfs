@@ -83,10 +83,6 @@ func (h *HyDFSServer) FileTransfer(stream grpc.ClientStreamingServer[pb.FileChun
 func (h *HyDFSServer) GetFile(req *pb.FileRequest, stream grpc.ServerStreamingServer[pb.FileChunk]) error {
 	// Open file from hydfs
 
-	// TODO: Use server metadata.
-	// Read from file and all the Append files.
-	// basically append File.filename and all the files with name File.AppendInfo.AppendID
-
 	filename := req.GetFilename()
 	hydfsDir := h.server.FileDirectory
 

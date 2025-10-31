@@ -66,5 +66,5 @@ type GetFileMetadataRequest struct {
 
 type GetFileMetadataResponse struct {
 	Success  bool `json:"success"`
-	Metadata Metadata
+	Metadata *Metadata
 }
