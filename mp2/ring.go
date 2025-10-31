@@ -3,6 +3,7 @@ package main
 import (
 	"math/big"
 	"os"
+	"path/filepath"
 )
 
 // GetNodeIndex returns the index of nodeID in a member slice
@@ -87,16 +88,19 @@ func (s *Server) stabilizeRing() {
 
 	for _, successor := range successors {
 		succMeta := s.fetchMetadataFromNode(successor, *start, *end)
+		LogInfo(true, "Fetching metadata from successor : ", successor.ID())
 		for _, filename := range myFiles {
+			LogInfo(true, "Looking for file with filename : ", filename)
 			localMeta, ok := s.Metadata.GetFile(filename)
 			if !ok {
+				LogError(true, "File not found locally")
 				continue // file locally deleted
 			}
 			remoteMeta, exists := succMeta.Files[filename]
 			// 1. Forward missing or outdated file
 			if !exists || localMeta.FileContentHash != remoteMeta.FileContentHash {
 				ConsolePrintf("[stabilizeRing] File '%s' is missing or outdated on %s: transferring.\n", filename, successor.Address)
-				data, err := os.ReadFile(s.FileDirectory + filename)
+				data, err := os.ReadFile(filepath.Join(s.FileDirectory, filename))
 				if err == nil {
 					// TODO: Send local metadata but appends should be empty
 					s.SendFileToNode(successor.Address, data, localMeta)
@@ -115,7 +119,7 @@ func (s *Server) stabilizeRing() {
 			}
 			for _, app := range appends {
 				if !remoteAppends[app.AppendID] {
-					data, err := os.ReadFile(s.FileDirectory + app.AppendID)
+					data, err := os.ReadFile(filepath.Join(s.FileDirectory, app.AppendID))
 					if err == nil {
 						// TODO: Send local metadata but appends should be empty
 						s.SendAppendToNode(successor.Address, data, app)
@@ -128,7 +132,7 @@ func (s *Server) stabilizeRing() {
 	}
 }
 
-// TODO: Revisit and review this logic on when to trigger --> Current logic is not correct.
+// TODO: Review this
 func (s *Server) handleReplicationWindowChange(nodeID string) {
 	members := s.Members.GetAll()
 	if len(members) == 0 {
