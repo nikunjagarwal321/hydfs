@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"math/rand"
 	"net"
 	"time"
@@ -128,5 +129,16 @@ func CallProtocolSwitch(address string, senderID string, protocol ProtocolType, 
 	}
 	var resp ProtocolSwitchResponse
 	err := makeRPCCall(address, "ProtocolSwitch", req, &resp, server)
+	return &resp, err
+}
+
+// CallProtocolSwitch makes an RPC call to broadcast protocol switch
+func GetKeysMetadata(address string, server *Server, startRange big.Int, endRange big.Int) (*GetFileMetadataResponse, error) {
+	req := &GetFileMetadataRequest{
+		KeyStartRange: startRange,
+		KeyEndRange:   endRange,
+	}
+	var resp GetFileMetadataResponse
+	err := makeRPCCall(address, "GetFilesMetadata", req, &resp, server)
 	return &resp, err
 }

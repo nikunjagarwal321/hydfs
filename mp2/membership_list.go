@@ -1,7 +1,6 @@
 package main
 
 import (
-	"math/big"
 	"sort"
 	"sync"
 	"time"
@@ -44,16 +43,8 @@ func (ml *MembershipList) sortNodes() {
 	}
 
 	sort.Slice(ml.nodes, func(i, j int) bool {
-		// Convert hash strings to big.Int for proper numeric comparison
-		hashI, okI := new(big.Int).SetString(ml.nodes[i].Hash, 10)
-		hashJ, okJ := new(big.Int).SetString(ml.nodes[j].Hash, 10)
-
-		// Handle invalid hashes
-		if !okI || !okJ {
-			return ml.nodes[i].Hash < ml.nodes[j].Hash // Fallback to string comparison
-		}
-
-		return hashI.Cmp(hashJ) < 0
+		// Compare directly using Member.Hash which is already big.Int
+		return ml.nodes[i].Hash.Cmp(&ml.nodes[j].Hash) < 0
 	})
 }
 
@@ -105,6 +96,7 @@ func (ml *MembershipList) MarkSuspectIfNeeded(suspicionTimeout, deadTimeout, cle
 				// In no-suspicion mode, only mark as dead if it crosses dead timeout
 				if elapsed > deadTimeout {
 					m.MarkDead()
+					handleDeadNode(globalServer, m)
 					toUpdate = append(toUpdate, m)
 					LogInfo(true, "FAILURE_DETECTED: Marked member as DEAD: %s", m.ID())
 					ConsolePrintf("FAILURE_DETECTED: Marked member as DEAD: %s\n", m.ID())
@@ -114,6 +106,7 @@ func (ml *MembershipList) MarkSuspectIfNeeded(suspicionTimeout, deadTimeout, cle
 		} else if m.Status == StatusSuspect && elapsed > deadTimeout {
 			m.MarkDead()
 			toUpdate = append(toUpdate, m)
+			handleDeadNode(globalServer, m)
 			LogInfo(true, "FAILURE_CONFIRMED: Marked suspected member as DEAD: %s", m.ID())
 			ConsolePrintf("FAILURE_CONFIRMED: Marked suspected member as DEAD: %s\n", m.ID())
 			changed = true
@@ -183,15 +176,15 @@ func (ml *MembershipList) Print(printOnConsole bool) {
 	for _, member := range ml.nodes {
 		if Config.Protocol == GossipProtocol {
 			if printOnConsole {
-				ConsolePrintf("Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| Hash: %s| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.Hash, member.LastUpdated.Format(time.RFC3339))
+				ConsolePrintf("Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| Hash: %s| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.Hash.String(), member.LastUpdated.Format(time.RFC3339))
 			}
-			LogInfo(true, "Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| Hash: %s| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.Hash, member.LastUpdated.Format(time.RFC3339))
+			LogInfo(true, "Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| Hash: %s| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.Hash.String(), member.LastUpdated.Format(time.RFC3339))
 		}
 		if Config.Protocol == PingAckProtocol {
 			if printOnConsole {
-				ConsolePrintf("Member: %s | Status:  %s| Incarnation: %d| Hash: %s\n", member.ID(), member.Status, member.Incarnation, member.Hash)
+				ConsolePrintf("Member: %s | Status:  %s| Incarnation: %d| Hash: %s\n", member.ID(), member.Status, member.Incarnation, member.Hash.String())
 			}
-			LogInfo(true, "Member: %s | Status:  %s| Incarnation: %d| Hash: %s\n", member.ID(), member.Status, member.Incarnation, member.Hash)
+			LogInfo(true, "Member: %s | Status:  %s| Incarnation: %d| Hash: %s\n", member.ID(), member.Status, member.Incarnation, member.Hash.String())
 		}
 	}
 	if printOnConsole {
@@ -207,12 +200,12 @@ func (ml *MembershipList) PrintSuspectedNodes() {
 	for _, member := range ml.nodes {
 		if member.Status == StatusSuspect {
 			if Config.Protocol == GossipProtocol {
-				ConsolePrintf("Suspected Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| Hash: %s| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.Hash, member.LastUpdated.Format(time.RFC3339))
-				LogInfo(true, "Suspected Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| Hash: %s| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.Hash, member.LastUpdated.Format(time.RFC3339))
+				ConsolePrintf("Suspected Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| Hash: %s| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.Hash.String(), member.LastUpdated.Format(time.RFC3339))
+				LogInfo(true, "Suspected Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| Hash: %s| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.Hash.String(), member.LastUpdated.Format(time.RFC3339))
 			}
 			if Config.Protocol == PingAckProtocol {
-				ConsolePrintf("Suspected Member: %s | Status:  %s| Incarnation: %d| Hash: %s\n", member.ID(), member.Status, member.Incarnation, member.Hash)
-				LogInfo(true, "Suspected Member: %s | Status:  %s| Incarnation: %d| Hash: %s\n", member.ID(), member.Status, member.Incarnation, member.Hash)
+				ConsolePrintf("Suspected Member: %s | Status:  %s| Incarnation: %d| Hash: %s\n", member.ID(), member.Status, member.Incarnation, member.Hash.String())
+				LogInfo(true, "Suspected Member: %s | Status:  %s| Incarnation: %d| Hash: %s\n", member.ID(), member.Status, member.Incarnation, member.Hash.String())
 			}
 		}
 	}

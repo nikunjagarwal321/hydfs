@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 
 	pb "distributed_log_query/proto"
 
@@ -11,7 +13,7 @@ import (
 )
 
 // SendFileToNode sends a file to a target node via gRPC streaming
-func (s *Server) SendFileToNode(targetAddr string, filename string, data []byte) error {
+func (s *Server) SendFileToNode(targetAddr string, data []byte, metadata FileMetadata) error {
 	// Convert UDP address to gRPC address
 	grpcAddr := convertToGRPCAddress(targetAddr)
 
@@ -30,6 +32,7 @@ func (s *Server) SendFileToNode(targetAddr string, filename string, data []byte)
 
 	// Send file in chunks (64KB chunks)
 	chunkSize := 64 * 1024
+	isFirstChunk := true
 	for i := 0; i < len(data); i += chunkSize {
 		end := i + chunkSize
 		if end > len(data) {
@@ -37,14 +40,25 @@ func (s *Server) SendFileToNode(targetAddr string, filename string, data []byte)
 		}
 
 		chunk := &pb.FileChunk{
-			Filename: filename,
-			Data:     data[i:end],
+			Data: data[i:end],
+		}
+
+		// Add filename and metadata to first chunk only
+		if isFirstChunk {
+			chunk.Filename = metadata.FileName
+			chunk.FileContentHash = metadata.FileContentHash
+			chunk.FileNameHash = int32(metadata.FileNameHash.Int64())
+			chunk.CreationTime = metadata.CreationTime
+			isFirstChunk = false
 		}
 
 		if err := stream.Send(chunk); err != nil {
 			return fmt.Errorf("failed to send chunk: %v", err)
 		}
 	}
+
+	// Log metadata for debugging
+	LogInfo(true, "Sent file metadata: %+v\n", metadata)
 
 	// Close and receive response
 	status, err := stream.CloseAndRecv()
@@ -57,5 +71,108 @@ func (s *Server) SendFileToNode(targetAddr string, filename string, data []byte)
 	}
 
 	ConsolePrintf("File sent to %s (gRPC: %s): %s\n", targetAddr, grpcAddr, status.GetMessage())
+	return nil
+}
+
+// ReceiveFileFromNode downloads a file from target node via server streaming and writes to local path
+func (s *Server) ReceiveFileFromNode(targetAddr string, hyDFSfilename string, localPath string) error {
+	grpcAddr := convertToGRPCAddress(targetAddr)
+
+	conn, err := grpc.Dial(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return fmt.Errorf("failed to connect to %s: %v", grpcAddr, err)
+	}
+	defer conn.Close()
+
+	client := pb.NewHyDFSServiceClient(conn)
+	stream, err := client.GetFile(context.Background(), &pb.FileRequest{Filename: hyDFSfilename})
+	if err != nil {
+		return fmt.Errorf("GetFile RPC failed: %v", err)
+	}
+
+	// Ensure directory exists
+	if err := os.MkdirAll("download", 0755); err != nil {
+		return fmt.Errorf("failed to ensure directory: %v", err)
+	}
+	f, err := os.Create(localPath)
+	if err != nil {
+		return fmt.Errorf("failed to create local file: %v", err)
+	}
+	defer f.Close()
+
+	for {
+		chunk, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("stream recv error: %v", err)
+		}
+		if _, err := f.Write(chunk.GetData()); err != nil {
+			return fmt.Errorf("write error: %v", err)
+		}
+	}
+
+	ConsolePrintf("File downloaded from %s (gRPC: %s) to %s\n", targetAddr, grpcAddr, localPath)
+	return nil
+}
+
+// SendFileToNode sends a file to a target node via gRPC streaming
+func (s *Server) SendAppendToNode(targetAddr string, data []byte, appendInfo AppendInfo) error {
+	// Convert UDP address to gRPC address
+	grpcAddr := convertToGRPCAddress(targetAddr)
+
+	// Connect to the target node
+	conn, err := grpc.Dial(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return fmt.Errorf("failed to connect to %s: %v", grpcAddr, err)
+	}
+	defer conn.Close()
+
+	client := pb.NewHyDFSServiceClient(conn)
+	stream, err := client.AppendTransfer(context.Background()) // use AppendTransfer
+	if err != nil {
+		return fmt.Errorf("failed to create append stream: %v", err)
+	}
+
+	// Send file in chunks (64KB chunks)
+	chunkSize := 64 * 1024
+	isFirstChunk := true
+	for i := 0; i < len(data); i += chunkSize {
+		end := i + chunkSize
+		if end > len(data) {
+			end = len(data)
+		}
+
+		chunk := &pb.AppendChunk{
+			Data: data[i:end],
+		}
+		if isFirstChunk {
+			chunk.Filename = appendInfo.FileName
+			chunk.AppendContentHash = appendInfo.AppendHash // (add these fields to AppendInfo if missing)
+			chunk.ClientId = appendInfo.ClientID
+			chunk.ClientTimestamp = appendInfo.ClientTimestamp
+			chunk.AppendId = appendInfo.AppendID
+			isFirstChunk = false
+		}
+
+		if err := stream.Send(chunk); err != nil {
+			return fmt.Errorf("failed to send append chunk: %v", err)
+		}
+	}
+
+	// Log appendInfo for debugging
+	LogInfo(true, "Sent append metadata: %+v\n", appendInfo)
+
+	status, err := stream.CloseAndRecv()
+	if err != nil {
+		return fmt.Errorf("failed to close append stream: %v", err)
+	}
+
+	if !status.GetSuccess() {
+		return fmt.Errorf("append upload failed: %s", status.GetMessage())
+	}
+
+	ConsolePrintf("Append sent to %s (gRPC: %s): %s\n", targetAddr, grpcAddr, status.GetMessage())
 	return nil
 }

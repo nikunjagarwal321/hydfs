@@ -1,5 +1,7 @@
 package main
 
+import "math/big"
+
 // RPC Message wrapper
 type RPCMessage struct {
 	Method string      `json:"method"`
@@ -55,4 +57,14 @@ type ProtocolSwitchRequest struct {
 
 type ProtocolSwitchResponse struct {
 	Success bool `json:"success"`
+}
+
+type GetFileMetadataRequest struct {
+	KeyStartRange big.Int `json:"sender_address"`
+	KeyEndRange   big.Int `json:"protocol"`
+}
+
+type GetFileMetadataResponse struct {
+	Success  bool `json:"success"`
+	Metadata *Metadata
 }

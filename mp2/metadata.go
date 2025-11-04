@@ -1,77 +1,125 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"time"
+	"errors"
+	"math/big"
+	"sync"
 )
 
-// ---------------------------
-// Struct definitions
-// ---------------------------
-
-// Metadata represents the top-level metadata structure.
-// TODO: If any other metadata is needed for HyDFS, add it here.
+// Metadata is now concurrency safe with per-file locks
 type Metadata struct {
-	Files []FileMetadata `json:"files"`
+	mu    sync.RWMutex // map-level protection
+	Files map[string]FileMetadata
+	locks map[string]*sync.RWMutex // per-file locks
 }
 
 // FileMetadata represents information about a file stored in HyDFS.
 type FileMetadata struct {
-	FileID       string       `json:"file_id"`
-	FileName     string       `json:"file_name"`
-	FileHash     int          `json:"file_hash"`
-	CreationTime string       `json:"creationTime"`
-	Appends      []AppendInfo `json:"appends"`
+	FileName        string
+	FileContentHash string
+	FileNameHash    big.Int
+	CreationTime    string
+	Appends         []AppendInfo
 }
 
 // AppendInfo represents one append operation to a file.
 type AppendInfo struct {
-	AppendID  string `json:"append_id"`
-	Timestamp string `json:"timestamp"`
-	Size      int64  `json:"size"`
+	FileName        string
+	AppendID        string // FileName + ClientTimestamp + ClientID
+	ClientID        string
+	ClientTimestamp string // Unix time in microseconds (guaranteed increasing by client)
+	AppendHash      string
+	Size            int64
 }
 
-// ---------------------------
-// Helper methods
-// ---------------------------
-
-// NewFileMetadata creates a new FileMetadata entry.
-func NewFileMetadata(name string, hash int) FileMetadata {
-	return FileMetadata{
-		FileID:       fmt.Sprintf("%s-%d", name, time.Now().UnixNano()),
-		FileName:     name,
-		FileHash:     hash,
-		CreationTime: time.Now().Format("2006-01-02 15:04:05"),
-		Appends:      []AppendInfo{},
+func (fileMeta *FileMetadata) insertAppend(newAppend AppendInfo) {
+	inserted := false
+	for i, a := range fileMeta.Appends {
+		if a.ClientID == newAppend.ClientID &&
+			a.ClientTimestamp > newAppend.ClientTimestamp {
+			// Insert before this append
+			fileMeta.Appends = append(fileMeta.Appends[:i],
+				append([]AppendInfo{newAppend}, fileMeta.Appends[i:]...)...)
+			inserted = true
+			break
+		}
+	}
+	if !inserted {
+		fileMeta.Appends = append(fileMeta.Appends, newAppend)
 	}
 }
 
-// AddAppend adds a new append record to the file metadata.
-func (f *FileMetadata) AddAppend(appendID string, size int64) {
-	appendInfo := AppendInfo{
-		AppendID:  appendID,
-		Timestamp: time.Now().Format("2006-01-02 15:04:05"),
-		Size:      size,
+// getFileLock returns the per-file mutex (helper, not exported)
+func (m *Metadata) getFileLock(filename string) *sync.RWMutex {
+	m.mu.RLock()
+	lock := m.locks[filename]
+	m.mu.RUnlock()
+	return lock
+}
+
+// AddFile adds or overwrites a file (creates per-file lock if missing)
+func (m *Metadata) AddFile(meta FileMetadata) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Files[meta.FileName] = meta
+	if m.locks == nil {
+		m.locks = make(map[string]*sync.RWMutex)
 	}
-	f.Appends = append(f.Appends, appendInfo)
-}
-
-// AddFile adds a new file to the metadata.
-func (m *Metadata) AddFile(file FileMetadata) {
-	m.Files = append(m.Files, file)
-}
-
-// ToJSON returns the JSON string representation of Metadata.
-func (m *Metadata) ToJSON() (string, error) {
-	data, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return "", err
+	if _, ok := m.locks[meta.FileName]; !ok {
+		m.locks[meta.FileName] = &sync.RWMutex{}
 	}
-	return string(data), nil
 }
 
-// FromJSON parses a JSON string into the Metadata struct.
-func (m *Metadata) FromJSON(jsonStr string) error {
-	return json.Unmarshal([]byte(jsonStr), m)
+// GetFile returns a copy (safe for outside use)
+func (m *Metadata) GetFile(filename string) (FileMetadata, bool) {
+	m.mu.RLock()
+	entry, ok := m.Files[filename]
+	m.mu.RUnlock()
+	if !ok {
+		return FileMetadata{}, false
+	}
+	lock := m.getFileLock(filename)
+	if lock != nil {
+		lock.RLock()
+		defer lock.RUnlock()
+	}
+	return entry, true
+}
+
+// AppendToFile safely appends to the file; avoids duplicates
+func (m *Metadata) AppendToFile(filename string, appendInfo AppendInfo) error {
+	lock := m.getFileLock(filename)
+	if lock == nil {
+		return errors.New("file does not exist")
+	}
+	lock.Lock()
+	defer lock.Unlock()
+
+	m.mu.RLock()
+	fileMeta := m.Files[filename]
+	m.mu.RUnlock()
+
+	// Only append if not a duplicate
+	for _, a := range fileMeta.Appends {
+		if a.AppendID == appendInfo.AppendID {
+			return nil // already exists
+		}
+	}
+	fileMeta.insertAppend(appendInfo)
+
+	m.mu.Lock()
+	m.Files[filename] = fileMeta
+	m.mu.Unlock()
+	return nil
+}
+
+// ListFiles returns a snapshot of file names
+func (m *Metadata) ListFiles() []string {
+	m.mu.RLock()
+	names := make([]string, 0, len(m.Files))
+	for name := range m.Files {
+		names = append(names, name)
+	}
+	m.mu.RUnlock()
+	return names
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math/big"
 	"sync"
 	"time"
 )
@@ -9,49 +10,34 @@ import (
 // Global server instance (will be set in main)
 var globalServer *Server
 
-// BandwidthStats tracks network bandwidth usage
-type BandwidthStats struct {
-	BytesSent     uint64
-	BytesReceived uint64
-	mu            sync.RWMutex
-}
+type StabilizationStatus string
 
-func (bs *BandwidthStats) AddSent(bytes uint64) {
-	bs.mu.Lock()
-	bs.BytesSent += bytes
-	bs.mu.Unlock()
-}
-
-func (bs *BandwidthStats) AddReceived(bytes uint64) {
-	bs.mu.Lock()
-	bs.BytesReceived += bytes
-	bs.mu.Unlock()
-}
-
-func (bs *BandwidthStats) GetAndReset() (sent, received uint64) {
-	bs.mu.Lock()
-	defer bs.mu.Unlock()
-	sent = bs.BytesSent
-	received = bs.BytesReceived
-	bs.BytesSent = 0
-	bs.BytesReceived = 0
-	return
-}
+const (
+	NewlyJoined    StabilizationStatus = "NEWLY_JOINED"
+	FailedNode     StabilizationStatus = "FAILED_NODE"
+	ProcessedNode  StabilizationStatus = "PROCESSED_NODE"
+	InProgressNode StabilizationStatus = "IN_PROGRESS_NODE"
+)
 
 type Server struct {
-	Addr                  string
-	NodeCreationTimestamp time.Time
-	IntroducerAddr        string
-	IncarnationNumber     uint64
-	HeartbeatCounter      uint64
-	IsIntroducer          bool
-	Members               *MembershipList
-	BandwidthStats        *BandwidthStats
-	Hash                  string
+	Addr                            string
+	NodeCreationTimestamp           time.Time
+	IntroducerAddr                  string
+	IncarnationNumber               uint64
+	HeartbeatCounter                uint64
+	IsIntroducer                    bool
+	Members                         *MembershipList
+	BandwidthStats                  *BandwidthStats
+	Hash                            big.Int
+	Metadata                        *Metadata
+	FileDirectory                   string
+	FailedPendingStabilization      map[string]StabilizationStatus
+	NewlyJoinedPendingStabilization map[string]StabilizationStatus
+	stabilizationLock               sync.Mutex
 }
 
 func (s *Server) ID() string {
-	return fmt.Sprintf("%s-%d", s.Addr, s.NodeCreationTimestamp.UnixNano())
+	return fmt.Sprintf("%s-%d", s.Addr, s.NodeCreationTimestamp.Unix())
 }
 
 // IF ANY GLOBAL PROPERTY IS RELATED TO SERVER, SET IT HERE
@@ -60,7 +46,7 @@ func NewServer(addr, introducerAddr string, isIntroducer bool) *Server {
 	membershipList := NewMembershipList()
 
 	// Compute hash for this server
-	hashValue := HashToMbits(addr).String()
+	hashValue := HashToMbits(addr)
 
 	member := Member{
 		Address:               addr,
@@ -73,16 +59,25 @@ func NewServer(addr, introducerAddr string, isIntroducer bool) *Server {
 	}
 	membershipList.AddOrUpdate(member)
 
+	metadata := &Metadata{
+		Files: make(map[string]FileMetadata),
+	}
+
 	return &Server{
-		Addr:                  addr,
-		NodeCreationTimestamp: member.NodeCreationTimestamp,
-		IntroducerAddr:        introducerAddr,
-		IncarnationNumber:     member.Incarnation,
-		HeartbeatCounter:      member.Heartbeat,
-		IsIntroducer:          isIntroducer,
-		Members:               membershipList,
-		BandwidthStats:        &BandwidthStats{},
-		Hash:                  hashValue,
+		Addr:                            addr,
+		NodeCreationTimestamp:           member.NodeCreationTimestamp,
+		IntroducerAddr:                  introducerAddr,
+		IncarnationNumber:               member.Incarnation,
+		HeartbeatCounter:                member.Heartbeat,
+		IsIntroducer:                    isIntroducer,
+		Members:                         membershipList,
+		BandwidthStats:                  &BandwidthStats{},
+		Hash:                            hashValue,
+		Metadata:                        metadata,
+		FileDirectory:                   "hydfs_" + addr,
+		FailedPendingStabilization:      make(map[string]StabilizationStatus),
+		NewlyJoinedPendingStabilization: make(map[string]StabilizationStatus),
+		stabilizationLock:               sync.Mutex{},
 	}
 }
 
@@ -117,6 +112,15 @@ func (s *Server) sendTimelyMessagesAsPerProtocol(interval time.Duration) {
 			s.pingSend(Config.Fanout)
 		}
 	}
+}
+
+// fetchMetadataFromNode fetches the file metadata for the range (or file) from a remote node
+func (s *Server) fetchMetadataFromNode(node Member, start, end big.Int) *Metadata {
+	meta, err := GetKeysMetadata(node.Address, globalServer, start, end)
+	if err != nil || meta == nil {
+		return &Metadata{Files: make(map[string]FileMetadata)}
+	}
+	return meta.Metadata
 }
 
 // Monitors and displays bandwidth usage per second

@@ -17,12 +17,12 @@ type DistributedSystemService struct {
 func (ds *DistributedSystemService) Join(req *JoinRequest, resp *JoinResponse) error {
 	if ds.server.IsIntroducer {
 		// Compute hash for the new member
-		hashValue := HashToMbits(req.Member.Address).String()
+		hashValue := HashToMbits(req.Member.Address)
 		req.Member.Hash = hashValue
 		req.Member.LastUpdated = time.Now()
 		ds.server.Members.AddOrUpdate(req.Member)
-		LogInfo(true, "MEMBER_JOIN: Introducer accepted new member: %s with hash: %s", req.Member.ID(), hashValue)
-		ConsolePrintf("MEMBER_JOIN: Introducer accepted new member: %s with hash: %s\n", req.Member.ID(), hashValue)
+		LogInfo(true, "MEMBER_JOIN: Introducer accepted new member: %s with hash: %s", req.Member.ID(), hashValue.String())
+		ConsolePrintf("MEMBER_JOIN: Introducer accepted new member: %s with hash: %s\n", req.Member.ID(), hashValue.String())
 		resp.Success = true
 		resp.Message = "Successfully joined the cluster"
 		resp.MembershipList = ds.server.Members.GetAll()
@@ -75,6 +75,23 @@ func (ds *DistributedSystemService) ProtocolSwitch(req *ProtocolSwitchRequest, r
 	return nil
 }
 
+// GetFilesMetadata returns filemetadata within that range
+func (ds *DistributedSystemService) GetFilesMetadata(req *GetFileMetadataRequest, resp *GetFileMetadataResponse) error {
+	LogInfo(true, "Received GetFilesMetadata request with Keyrange : %s - %s ",
+		req.KeyStartRange.String(), req.KeyEndRange.String())
+
+	fileNames := GetFilesWithinRange(ds.server.Metadata.Files, &req.KeyStartRange, &req.KeyEndRange)
+	result := make(map[string]FileMetadata)
+	for _, name := range fileNames {
+		meta := ds.server.Metadata.Files[name]
+		result[name] = meta
+	}
+	resp.Metadata = &Metadata{Files: result}
+	resp.Success = true
+	LogInfo(true, "Successfully provided metadata for key range: %s - %s", req.KeyStartRange.String(), req.KeyEndRange.String())
+	return nil
+}
+
 // StartRPCServer starts the RPC server with UDP transport
 func (s *Server) StartRPCServer() error {
 	addr, err := net.ResolveUDPAddr("udp", s.Addr)
@@ -109,7 +126,7 @@ func (s *Server) StartRPCServer() error {
 	go s.sendTimelyMessagesAsPerProtocol(gossipOrSwimPingInterval)
 	go s.increaseHeartbeat(heartbeatInterval)
 	go s.backgroundCheckerRPC(suspicionCheckTimeout, suspicionTimeout, deadTimeout, cleanUpTimeout)
-	go s.monitorBandwidth()
+	// go s.monitorBandwidth()
 	go s.startCLI(cmdChan)
 	go s.StartHyDFSGRPCServer()
 
@@ -232,6 +249,15 @@ func (s *Server) handleRPCRequest(conn *net.UDPConn, clientAddr *net.UDPAddr, da
 		}
 		var resp ProtocolSwitchResponse
 		rpcErr = service.ProtocolSwitch(&req, &resp)
+		result = resp
+	case "GetFilesMetadata":
+		var req GetFileMetadataRequest
+		if err := s.convertParams(rpcMsg.Params, &req); err != nil {
+			s.sendRPCError(conn, clientAddr, rpcMsg.ID, fmt.Sprintf("invalid params: %v", err))
+			return
+		}
+		var resp GetFileMetadataResponse
+		rpcErr = service.GetFilesMetadata(&req, &resp)
 		result = resp
 
 	default:

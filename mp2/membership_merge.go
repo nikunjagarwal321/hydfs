@@ -18,17 +18,23 @@ func mergeMembership(server *Server, receivedMembers []Member, senderId string) 
 		// Skip processing if local member is already dead and received member is also dead
 		_, exists := localSnapshot[receivedMember.ID()]
 
+		// Track join: newly seen, not dead
 		if !exists && receivedMember.Status != StatusDead {
-			// New member, add it
 			receivedMember.LastUpdated = time.Now()
 			server.Members.AddOrUpdate(receivedMember)
 			LogInfo(true, "MEMBER_JOIN: Added new member: %s with hash: %s during merge", receivedMember.ID(), receivedMember.Hash)
+			handleNewlyJoinedNode(server, receivedMember)
 			continue
 		} else if !exists && receivedMember.Status == StatusDead {
-			continue // Handle edge case where a received dead node is not in local membership list in swim
+			continue // Ignore dead node join edge-case SWIM
 		}
 
 		localMember := localSnapshot[receivedMember.ID()]
+
+		// Track failure: present and alive in local, now seen as dead/left
+		if (localMember.Status == StatusAlive || localMember.Status == StatusSuspect) && (receivedMember.Status == StatusDead || receivedMember.Status == StatusVoluntaryLeave) {
+			handleDeadNode(server, receivedMember)
+		}
 
 		// Special case: Handle self-node with suspicion enabled
 		if receivedMember.ID() == server.ID() {
@@ -52,9 +58,9 @@ func mergeMembership(server *Server, receivedMembers []Member, senderId string) 
 
 		switch Config.Suspicion {
 		case Suspect:
-			updatedMember = handleSuspicionMerge(localMember, receivedMember, senderId)
+			updatedMember = handleSuspicionMerge(server, localMember, receivedMember, senderId)
 		case NoSuspect:
-			updatedMember = handleNoSuspicionMerge(localMember, receivedMember, senderId)
+			updatedMember = handleNoSuspicionMerge(server, localMember, receivedMember, senderId)
 		}
 
 		server.Members.AddOrUpdate(updatedMember)
@@ -65,9 +71,10 @@ func mergeMembership(server *Server, receivedMembers []Member, senderId string) 
 
 // handleSuspicionMerge handles merge logic with suspicion enabled
 // Priority: Dead/VoluntaryLeave > Incarnation > Suspect > Alive > Heartbeat (Gossip only)
-func handleSuspicionMerge(localMember Member, receivedMember Member, receiverId string) Member {
+func handleSuspicionMerge(server *Server, localMember Member, receivedMember Member, receiverId string) Member {
 	// Rule 1: Dead/VoluntaryLeave always wins (overrides everything, even incarnation number)
 	if receivedMember.Status == StatusDead || receivedMember.Status == StatusVoluntaryLeave {
+		handleDeadNode(server, receivedMember)
 		if localMember.Status != receivedMember.Status {
 			LogInfo(true, "MEMBER_STATUS_CHANGE: Member %s status changed to %s (from %s) during merge", receivedMember.ID(), receivedMember.Status, localMember.Status)
 		}
@@ -121,7 +128,7 @@ func handleSuspicionMerge(localMember Member, receivedMember Member, receiverId 
 }
 
 // handleNoSuspicionMerge handles merge logic without suspicion
-func handleNoSuspicionMerge(localMember Member, receivedMember Member, receiverId string) Member {
+func handleNoSuspicionMerge(server *Server, localMember Member, receivedMember Member, receiverId string) Member {
 	if receivedMember.Status == StatusDead || receivedMember.Status == StatusVoluntaryLeave {
 		if localMember.Status != receivedMember.Status {
 			LogInfo(true, "MEMBER_STATUS_CHANGE: Member %s status changed to %s (from %s) during merge", receivedMember.ID(), receivedMember.Status, localMember.Status)
@@ -175,4 +182,24 @@ func getStatusPriority(status Status) int {
 	default:
 		return 0
 	}
+}
+
+func handleDeadNode(server *Server, m Member) {
+	if server.FailedPendingStabilization[m.ID()] == FailedNode {
+		return
+	}
+	server.FailedPendingStabilization[m.ID()] = FailedNode
+	go func() {
+		server.handleReplicationWindowChange(m.ID())
+	}()
+}
+
+func handleNewlyJoinedNode(server *Server, m Member) {
+	if server.NewlyJoinedPendingStabilization[m.ID()] == FailedNode {
+		return
+	}
+	server.NewlyJoinedPendingStabilization[m.ID()] = NewlyJoined
+	go func() {
+		server.handleReplicationWindowChange(m.ID())
+	}()
 }
