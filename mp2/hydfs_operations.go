@@ -484,15 +484,22 @@ func (s *Server) handleListStore() {
 }
 
 // handleGetFromReplica gets a file from a specific replica VM and stores it locally
-func (s *Server) handleGetFromReplica(vmAddress, hyDFSfilename, localFilename string) {
-	ConsolePrintf("[getfromreplica] Fetching file %s from replica %s\n", hyDFSfilename, vmAddress)
+func (s *Server) handleGetFromReplica(vmID, hyDFSfilename, localFilename string) {
+	// Map VM ID to address using NodeMap
+	vmAddress, ok := NodeMap[vmID]
+	if !ok {
+		ConsolePrintf("[getfromreplica] Invalid VM ID: %s (not found in NodeMap)\n", vmID)
+		return
+	}
+
+	ConsolePrintf("[getfromreplica] Fetching file %s from replica %s (%s)\n", hyDFSfilename, vmID, vmAddress)
 
 	// Use ReceiveFileFromNode to download from the specific VM address
 	err := s.ReceiveFileFromNode(vmAddress, hyDFSfilename, localFilename)
 	if err != nil {
-		ConsolePrintf("[getfromreplica] Failed to get file %s from %s: %v\n", hyDFSfilename, vmAddress, err)
+		ConsolePrintf("[getfromreplica] Failed to get file %s from %s (%s): %v\n", hyDFSfilename, vmID, vmAddress, err)
 		return
 	}
 
-	ConsolePrintf("[getfromreplica] Successfully retrieved file %s from %s and saved as %s\n", hyDFSfilename, vmAddress, localFilename)
+	ConsolePrintf("[getfromreplica] Successfully retrieved file %s from %s (%s) and saved as %s\n", hyDFSfilename, vmID, vmAddress, localFilename)
 }

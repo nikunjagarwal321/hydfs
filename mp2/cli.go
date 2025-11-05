@@ -98,7 +98,7 @@ func (s *Server) handleCommand(cmd string) {
 		s.Members.Print(true)
 	case "getfromreplica":
 		if len(parts) != 4 {
-			ConsolePrintf("Invalid getfromreplica command format. Expected: getfromreplica <VMaddress> <HyDFSfilename> <localfilename>\n")
+			ConsolePrintf("Invalid getfromreplica command format. Expected: getfromreplica <VMID> <HyDFSfilename> <localfilename>\n")
 			return
 		}
 		s.handleGetFromReplica(parts[1], parts[2], parts[3])
@@ -173,7 +173,6 @@ func printCurrentProtocol() {
 // parseMultiAppend parses multiappend command: multiappend HyDFSfilename VM1 ... VMN localfile1 ... localfileN
 // Format: multiappend <HyDFSfilename> <VM1> ... <VMN> <localfile1> ... <localfileN>
 // VM format: vm1, vm2, vm3, etc.
-// Local files: must have .txt extension
 func (s *Server) parseMultiAppend(args []string) (string, []string, []string) {
 	if len(args) < 3 {
 		ConsolePrintf("Invalid multiappend: need at least HyDFSfilename, one VM, and one local file\n")
@@ -188,25 +187,28 @@ func (s *Server) parseMultiAppend(args []string) (string, []string, []string) {
 		return "", nil, nil
 	}
 
-	// Parse arguments: VMs are vm1, vm2, etc., local files end with .txt
+	// Parse arguments: VMs are vm1, vm2, etc., local files follow after all VMs
 	var vmNames []string
 	var localFiles []string
 
-	// Find boundary: first argument with .txt marks start of local files
+	// Find all consecutive VM names starting from index 1
+	// VM names should start with "vm" (case-insensitive)
 	splitIndex := -1
 	for i := 1; i < len(args); i++ {
-		if strings.HasSuffix(args[i], ".txt") {
+		if strings.HasPrefix(strings.ToLower(args[i]), "vm") {
+			vmNames = append(vmNames, args[i])
+		} else {
+			// First non-VM argument marks the start of local files
 			splitIndex = i
 			break
 		}
 	}
 
 	if splitIndex == -1 {
-		ConsolePrintf("Invalid multiappend: could not find local files (must end with .txt)\n")
+		ConsolePrintf("Invalid multiappend: could not find local files. Format: multiappend <HyDFSfilename> <VM1> ... <VMN> <localfile1> ... <localfileN>\n")
 		return "", nil, nil
 	}
 
-	vmNames = args[1:splitIndex]
 	localFiles = args[splitIndex:]
 
 	// Validate: number of VMs should match number of local files
@@ -216,20 +218,9 @@ func (s *Server) parseMultiAppend(args []string) (string, []string, []string) {
 		return "", nil, nil
 	}
 
-	// Validate VM names format (should start with "vm")
-	for _, vm := range vmNames {
-		if !strings.HasPrefix(strings.ToLower(vm), "vm") {
-			ConsolePrintf("Invalid VM format: %s (expected vm1, vm2, etc.)\n", vm)
-			return "", nil, nil
-		}
-	}
-
-	// Validate local files have .txt extension
-	for _, file := range localFiles {
-		if !strings.HasSuffix(file, ".txt") {
-			ConsolePrintf("Invalid local file format: %s (must have .txt extension)\n", file)
-			return "", nil, nil
-		}
+	if len(vmNames) == 0 {
+		ConsolePrintf("Invalid multiappend: at least one VM is required\n")
+		return "", nil, nil
 	}
 
 	ConsolePrintf("Parsed multiappend: HyDFSfilename=%s, VMs=%v, LocalFiles=%v\n",
