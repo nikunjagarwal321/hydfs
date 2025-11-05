@@ -422,3 +422,77 @@ func (s *Server) executeMerge(hyDFSfilename ...string) {
 
 	ConsolePrintf("[handleMerge] Merge operation completed\n")
 }
+
+// handleLS lists all VM addresses and IDs where a file is stored, along with the file ID
+func (s *Server) handleLS(hyDFSfilename string) {
+	// Hash the filename to get the file ID
+	fileHash := HashToMbits(hyDFSfilename)
+	fileID := fileHash.String()
+
+	ConsolePrintf("File: %s\n", hyDFSfilename)
+	ConsolePrintf("FileID: %s\n", fileID)
+
+	// Find all target nodes where the file is stored (primary + replicas)
+	targetMembers := s.findTargetNodes(fileHash, Config.ReplicationFactor)
+
+	if len(targetMembers) == 0 {
+		ConsolePrintf("No nodes found for file %s\n", hyDFSfilename)
+		return
+	}
+
+	ConsolePrintf("Stored on %d node(s):\n", len(targetMembers))
+	for i, member := range targetMembers {
+		vmName := AddressToVMName[member.Address]
+		if vmName == "" {
+			vmName = member.Address // Fallback to address if VM name not found
+		}
+		ConsolePrintf("  [%d] VM: %s | Address: %s | ID: %s | Hash: %s\n",
+			i+1, vmName, member.Address, member.ID(), member.Hash.String())
+	}
+}
+
+// handleListStore lists all files stored on this VM's HyDFS along with their fileIDs
+func (s *Server) handleListStore() {
+	// Get VM name for this process
+	vmName := AddressToVMName[s.Addr]
+	if vmName == "" {
+		vmName = s.Addr // Fallback to address if VM name not found
+	}
+
+	// Get process/VM's ID on the ring
+	vmID := s.ID()
+
+	ConsolePrintf("VM: %s | Address: %s | ID: %s\n", vmName, s.Addr, vmID)
+
+	// Get all files stored in this VM's metadata
+	fileNames := s.Metadata.ListFiles()
+
+	if len(fileNames) == 0 {
+		ConsolePrintf("No files stored on this VM's HyDFS\n")
+		return
+	}
+
+	ConsolePrintf("Files stored on this VM's HyDFS (%d file(s)):\n", len(fileNames))
+	for i, filename := range fileNames {
+		fileMeta, ok := s.Metadata.GetFile(filename)
+		if !ok {
+			continue
+		}
+		fileID := fileMeta.FileNameHash.String()
+		ConsolePrintf("  [%d] File: %s | FileID: %s\n", i+1, filename, fileID)
+	}
+}
+
+// handleGetFromReplica gets a file from a specific replica VM and stores it locally
+func (s *Server) handleGetFromReplica(vmAddress, hyDFSfilename, localFilename string) {
+	ConsolePrintf("[getfromreplica] Fetching file %s from replica %s\n", hyDFSfilename, vmAddress)
+
+	// Use ReceiveFileFromNode to download from the specific VM address
+	err := s.ReceiveFileFromNode(vmAddress, hyDFSfilename, localFilename)
+	if err != nil {
+		ConsolePrintf("[getfromreplica] Failed to get file %s from %s: %v\n", hyDFSfilename, vmAddress, err)
+		return
+	}
+
+	ConsolePrintf("[getfromreplica] Successfully retrieved file %s from %s and saved as %s\n", hyDFSfilename, vmAddress, localFilename)
+}

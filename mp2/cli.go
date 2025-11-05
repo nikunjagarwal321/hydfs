@@ -86,12 +86,22 @@ func (s *Server) handleCommand(cmd string) {
 			return
 		}
 		s.Metadata.PrintFileMetadata(parts[1])
-		//TODO: test and implement other funcitons
-		// merge HyDFSfilename
-		// ls HyDFSfilename
-		// liststore (at any process/VM)
-		// getfromreplica VMaddress HyDFSfilename localfilename
-		// list_mem_ids
+	case "ls":
+		if len(parts) != 2 {
+			ConsolePrintf("Invalid ls command format. Expected: ls <HyDFSfilename>\n")
+			return
+		}
+		s.handleLS(parts[1])
+	case "liststore":
+		s.handleListStore()
+	case "list_mem_ids":
+		s.Members.Print(true)
+	case "getfromreplica":
+		if len(parts) != 4 {
+			ConsolePrintf("Invalid getfromreplica command format. Expected: getfromreplica <VMaddress> <HyDFSfilename> <localfilename>\n")
+			return
+		}
+		s.handleGetFromReplica(parts[1], parts[2], parts[3])
 	default:
 		ConsolePrintf("Unknown command: %s\n", command)
 	}
