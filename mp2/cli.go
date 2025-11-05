@@ -80,7 +80,7 @@ func (s *Server) handleCommand(cmd string) {
 		}
 		hyDFSfilename, vmNames, localFiles := s.parseMultiAppend(parts[1:])
 		s.handleMultiAppend(hyDFSfilename, vmNames, localFiles)
-	case "printmeta":
+	case "printmeta": //for testing purposes
 		if len(parts) != 2 {
 			ConsolePrintf("Invalid printmeta command format. Expected: printmeta <HyDFSfilename>\n")
 			return
