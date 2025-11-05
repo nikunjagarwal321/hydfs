@@ -92,6 +92,54 @@ func (ds *DistributedSystemService) GetFilesMetadata(req *GetFileMetadataRequest
 	return nil
 }
 
+// MultiAppend handles multiappend RPC call - calls handleAppend on the server
+func (ds *DistributedSystemService) MultiAppend(req *MultiAppendRequest, resp *MultiAppendResponse) error {
+	LogInfo(true, "Received MultiAppend request: HyDFSfilename=%s, LocalFilename=%s", req.HyDFSFileName, req.LocalFileName)
+
+	// Call handleAppend on the server
+	ds.server.handleAppend(req.LocalFileName, req.HyDFSFileName)
+
+	resp.Success = true
+	resp.Message = fmt.Sprintf("Append operation completed for %s", req.HyDFSFileName)
+	LogInfo(true, "MultiAppend completed: %s", resp.Message)
+	return nil
+}
+
+// UpdateAppendOrder handles RPC call to update append order for a file
+func (ds *DistributedSystemService) UpdateAppendOrder(req *UpdateAppendOrderRequest, resp *UpdateAppendOrderResponse) error {
+	LogInfo(true, "Received UpdateAppendOrder request for file: %s", req.FileName)
+
+	// Get current file metadata
+	fileMeta, ok := ds.server.Metadata.GetFile(req.FileName)
+	if !ok {
+		resp.Success = false
+		resp.Message = fmt.Sprintf("File %s not found", req.FileName)
+		return nil
+	}
+
+	// Update the append order
+	fileMeta.Appends = req.Appends
+	ds.server.Metadata.AddFile(fileMeta)
+
+	resp.Success = true
+	resp.Message = fmt.Sprintf("Append order updated for file %s", req.FileName)
+	LogInfo(true, "UpdateAppendOrder completed: %s", resp.Message)
+	return nil
+}
+
+// Merge handles RPC call to execute merge on the primary node
+func (ds *DistributedSystemService) Merge(req *MergeRequest, resp *MergeResponse) error {
+	LogInfo(true, "Received Merge request for file: %s", req.HyDFSFileName)
+
+	// Execute merge on this node
+	ds.server.executeMerge(req.HyDFSFileName)
+
+	resp.Success = true
+	resp.Message = fmt.Sprintf("Merge operation completed for file %s", req.HyDFSFileName)
+	LogInfo(true, "Merge completed: %s", resp.Message)
+	return nil
+}
+
 // StartRPCServer starts the RPC server with UDP transport
 func (s *Server) StartRPCServer() error {
 	addr, err := net.ResolveUDPAddr("udp", s.Addr)
@@ -258,6 +306,36 @@ func (s *Server) handleRPCRequest(conn *net.UDPConn, clientAddr *net.UDPAddr, da
 		}
 		var resp GetFileMetadataResponse
 		rpcErr = service.GetFilesMetadata(&req, &resp)
+		result = resp
+
+	case "MultiAppend":
+		var req MultiAppendRequest
+		if err := s.convertParams(rpcMsg.Params, &req); err != nil {
+			s.sendRPCError(conn, clientAddr, rpcMsg.ID, fmt.Sprintf("invalid params: %v", err))
+			return
+		}
+		var resp MultiAppendResponse
+		rpcErr = service.MultiAppend(&req, &resp)
+		result = resp
+
+	case "UpdateAppendOrder":
+		var req UpdateAppendOrderRequest
+		if err := s.convertParams(rpcMsg.Params, &req); err != nil {
+			s.sendRPCError(conn, clientAddr, rpcMsg.ID, fmt.Sprintf("invalid params: %v", err))
+			return
+		}
+		var resp UpdateAppendOrderResponse
+		rpcErr = service.UpdateAppendOrder(&req, &resp)
+		result = resp
+
+	case "Merge":
+		var req MergeRequest
+		if err := s.convertParams(rpcMsg.Params, &req); err != nil {
+			s.sendRPCError(conn, clientAddr, rpcMsg.ID, fmt.Sprintf("invalid params: %v", err))
+			return
+		}
+		var resp MergeResponse
+		rpcErr = service.Merge(&req, &resp)
 		result = resp
 
 	default:

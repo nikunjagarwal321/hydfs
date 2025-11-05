@@ -63,18 +63,35 @@ func (s *Server) handleCommand(cmd string) {
 		s.handleGet(parts[1], parts[2])
 	case "append":
 		if len(parts) != 3 {
-			ConsolePrintf("Invalid appen command format. Expected: append <localfilename> <HyDFSfilename>\n")
+			ConsolePrintf("Invalid append command format. Expected: append <localfilename> <HyDFSfilename>\n")
 			return
 		}
 		s.handleAppend(parts[1], parts[2])
+	case "merge":
+		if len(parts) != 2 {
+			ConsolePrintf("Invalid merge command format. Expected: merge <HyDFSfilename>\n")
+			return
+		}
+		s.handleMergeCommand(parts[1])
+	case "multiappend":
+		if len(parts) < 4 {
+			ConsolePrintf("Invalid multiappend command format. Expected: multiappend <HyDFSfilename> <VM1> ... <VMN> <localfile1> ... <localfileN>\n")
+			return
+		}
+		hyDFSfilename, vmNames, localFiles := s.parseMultiAppend(parts[1:])
+		s.handleMultiAppend(hyDFSfilename, vmNames, localFiles)
+	case "printmeta":
+		if len(parts) != 2 {
+			ConsolePrintf("Invalid printmeta command format. Expected: printmeta <HyDFSfilename>\n")
+			return
+		}
+		s.Metadata.PrintFileMetadata(parts[1])
 		//TODO: test and implement other funcitons
 		// merge HyDFSfilename
 		// ls HyDFSfilename
 		// liststore (at any process/VM)
 		// getfromreplica VMaddress HyDFSfilename localfilename
 		// list_mem_ids
-		// multiappend(HyDFSfilename, VMi, … VMj, localfilenamei,....localfilenamej)
-
 	default:
 		ConsolePrintf("Unknown command: %s\n", command)
 	}
@@ -141,4 +158,72 @@ func (s *Server) handleSwitch(protocolStr, suspicionStr string) {
 func printCurrentProtocol() {
 	ConsolePrintf("Current Protocol: %s | Suspicion: %s | Message Drop Rate: %.2f%%\n",
 		Config.Protocol, Config.Suspicion, Config.MessageDropRate*100)
+}
+
+// parseMultiAppend parses multiappend command: multiappend HyDFSfilename VM1 ... VMN localfile1 ... localfileN
+// Format: multiappend <HyDFSfilename> <VM1> ... <VMN> <localfile1> ... <localfileN>
+// VM format: vm1, vm2, vm3, etc.
+// Local files: must have .txt extension
+func (s *Server) parseMultiAppend(args []string) (string, []string, []string) {
+	if len(args) < 3 {
+		ConsolePrintf("Invalid multiappend: need at least HyDFSfilename, one VM, and one local file\n")
+		return "", nil, nil
+	}
+
+	hyDFSfilename := args[0]
+
+	// Validate that first argument is not a VM name
+	if strings.HasPrefix(strings.ToLower(hyDFSfilename), "vm") {
+		ConsolePrintf("Invalid multiappend: first argument should be HyDFSfilename, not VM name. Format: multiappend <HyDFSfilename> <VM1> ... <VMN> <localfile1> ... <localfileN>\n")
+		return "", nil, nil
+	}
+
+	// Parse arguments: VMs are vm1, vm2, etc., local files end with .txt
+	var vmNames []string
+	var localFiles []string
+
+	// Find boundary: first argument with .txt marks start of local files
+	splitIndex := -1
+	for i := 1; i < len(args); i++ {
+		if strings.HasSuffix(args[i], ".txt") {
+			splitIndex = i
+			break
+		}
+	}
+
+	if splitIndex == -1 {
+		ConsolePrintf("Invalid multiappend: could not find local files (must end with .txt)\n")
+		return "", nil, nil
+	}
+
+	vmNames = args[1:splitIndex]
+	localFiles = args[splitIndex:]
+
+	// Validate: number of VMs should match number of local files
+	if len(vmNames) != len(localFiles) {
+		ConsolePrintf("Invalid multiappend: number of VMs (%d) must match number of local files (%d)\n",
+			len(vmNames), len(localFiles))
+		return "", nil, nil
+	}
+
+	// Validate VM names format (should start with "vm")
+	for _, vm := range vmNames {
+		if !strings.HasPrefix(strings.ToLower(vm), "vm") {
+			ConsolePrintf("Invalid VM format: %s (expected vm1, vm2, etc.)\n", vm)
+			return "", nil, nil
+		}
+	}
+
+	// Validate local files have .txt extension
+	for _, file := range localFiles {
+		if !strings.HasSuffix(file, ".txt") {
+			ConsolePrintf("Invalid local file format: %s (must have .txt extension)\n", file)
+			return "", nil, nil
+		}
+	}
+
+	ConsolePrintf("Parsed multiappend: HyDFSfilename=%s, VMs=%v, LocalFiles=%v\n",
+		hyDFSfilename, vmNames, localFiles)
+
+	return hyDFSfilename, vmNames, localFiles
 }

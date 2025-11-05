@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"math/big"
 	"sync"
@@ -15,11 +16,53 @@ type Metadata struct {
 
 // FileMetadata represents information about a file stored in HyDFS.
 type FileMetadata struct {
-	FileName        string
-	FileContentHash string
-	FileNameHash    big.Int
-	CreationTime    string
-	Appends         []AppendInfo
+	FileName        string       `json:"file_name"`
+	FileContentHash string       `json:"file_content_hash"`
+	FileNameHash    big.Int      `json:"file_name_hash"`
+	CreationTime    string       `json:"creation_time"`
+	Appends         []AppendInfo `json:"appends"`
+}
+
+// MarshalJSON implements custom JSON marshaling for FileMetadata
+func (fm FileMetadata) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct {
+		FileName        string       `json:"file_name"`
+		FileContentHash string       `json:"file_content_hash"`
+		FileNameHash    string       `json:"file_name_hash"`
+		CreationTime    string       `json:"creation_time"`
+		Appends         []AppendInfo `json:"appends"`
+	}{
+		FileName:        fm.FileName,
+		FileContentHash: fm.FileContentHash,
+		FileNameHash:    fm.FileNameHash.String(),
+		CreationTime:    fm.CreationTime,
+		Appends:         fm.Appends,
+	})
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for FileMetadata
+func (fm *FileMetadata) UnmarshalJSON(data []byte) error {
+	aux := &struct {
+		FileName        string       `json:"file_name"`
+		FileContentHash string       `json:"file_content_hash"`
+		FileNameHash    string       `json:"file_name_hash"`
+		CreationTime    string       `json:"creation_time"`
+		Appends         []AppendInfo `json:"appends"`
+	}{}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	// Parse the FileNameHash string back to big.Int
+	fileNameHash, ok := new(big.Int).SetString(aux.FileNameHash, 10)
+	if !ok {
+		return errors.New("invalid file_name_hash format")
+	}
+	fm.FileName = aux.FileName
+	fm.FileContentHash = aux.FileContentHash
+	fm.FileNameHash = *fileNameHash
+	fm.CreationTime = aux.CreationTime
+	fm.Appends = aux.Appends
+	return nil
 }
 
 // AppendInfo represents one append operation to a file.
@@ -122,4 +165,33 @@ func (m *Metadata) ListFiles() []string {
 	}
 	m.mu.RUnlock()
 	return names
+}
+
+// PrintFileMetadata prints the metadata for a file with its appends in order
+func (m *Metadata) PrintFileMetadata(filename string) {
+	fileMeta, ok := m.GetFile(filename)
+	if !ok {
+		ConsolePrintf("File '%s' not found in metadata\n", filename)
+		return
+	}
+
+	ConsolePrintf("\n=== File Metadata: %s ===\n", filename)
+	ConsolePrintf("FileName:        %s\n", fileMeta.FileName)
+	ConsolePrintf("FileContentHash: %s\n", fileMeta.FileContentHash)
+	ConsolePrintf("FileNameHash:    %s\n", fileMeta.FileNameHash.String())
+	ConsolePrintf("CreationTime:    %s\n", fileMeta.CreationTime)
+	ConsolePrintf("Number of Appends: %d\n", len(fileMeta.Appends))
+
+	if len(fileMeta.Appends) > 0 {
+		ConsolePrintf("\n--- Appends (in order) ---\n")
+		for i, append := range fileMeta.Appends {
+			ConsolePrintf("  [%d] AppendID:        %s\n", i+1, append.AppendID)
+			ConsolePrintf("      ClientID:        %s\n", append.ClientID)
+			ConsolePrintf("      ClientTimestamp: %s\n", append.ClientTimestamp)
+			ConsolePrintf("      AppendHash:      %s\n", append.AppendHash)
+			ConsolePrintf("      Size:            %d bytes\n", append.Size)
+			ConsolePrintf("\n")
+		}
+	}
+	ConsolePrintf("===========================\n\n")
 }

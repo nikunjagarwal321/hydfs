@@ -59,6 +59,15 @@ var NodeMap = map[string]string{
 	"vm10": "127.0.0.1:5009",
 }
 
+// AddressToVMName maps address to VM name (reverse of NodeMap)
+var AddressToVMName = func() map[string]string {
+	reverseMap := make(map[string]string)
+	for vmName, address := range NodeMap {
+		reverseMap[address] = vmName
+	}
+	return reverseMap
+}()
+
 var Config = struct {
 	IntroducerAddr    string
 	Protocol          ProtocolType

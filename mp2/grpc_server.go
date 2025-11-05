@@ -102,7 +102,7 @@ func (h *HyDFSServer) GetFile(req *pb.FileRequest, stream grpc.ServerStreamingSe
 
 	// --- 3️⃣ Read and stream each file sequentially ---
 	buf := make([]byte, 64*1024)
-	for _, path := range filePaths {
+	for i, path := range filePaths {
 		f, err := os.Open(path)
 		if err != nil {
 			// If append file missing, log and skip (to preserve availability)
@@ -131,6 +131,18 @@ func (h *HyDFSServer) GetFile(req *pb.FileRequest, stream grpc.ServerStreamingSe
 			}
 		}
 		f.Close()
+
+		// Add newline separator between files (after original file and each append)
+		// Skip if this is the last file
+		if i < len(filePaths)-1 {
+			newlineChunk := &pb.FileChunk{
+				Filename: filename,
+				Data:     []byte("\n"),
+			}
+			if sendErr := stream.Send(newlineChunk); sendErr != nil {
+				return fmt.Errorf("failed to send newline separator: %v", sendErr)
+			}
+		}
 	}
 
 	return nil

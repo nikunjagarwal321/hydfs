@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"math/big"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -31,6 +33,7 @@ type Server struct {
 	Hash                            big.Int
 	Metadata                        *Metadata
 	FileDirectory                   string
+	DownloadDir                     string
 	FailedPendingStabilization      map[string]StabilizationStatus
 	NewlyJoinedPendingStabilization map[string]StabilizationStatus
 	stabilizationLock               sync.Mutex
@@ -63,6 +66,21 @@ func NewServer(addr, introducerAddr string, isIntroducer bool) *Server {
 		Files: make(map[string]FileMetadata),
 	}
 
+	// Get VM name from reverse map for FileDirectory
+	vmName := AddressToVMName[addr]
+
+	// Cleanup own directory during startup
+	if vmName != "" {
+		nodeDir := filepath.Join("hydfs", vmName)
+		if err := os.RemoveAll(nodeDir); err != nil {
+			if !os.IsNotExist(err) {
+				ConsolePrintf("[NewServer] Failed to cleanup own directory %s: %v\n", nodeDir, err)
+			}
+		} else {
+			ConsolePrintf("[NewServer] Cleaned up own directory %s\n", nodeDir)
+		}
+	}
+
 	return &Server{
 		Addr:                            addr,
 		NodeCreationTimestamp:           member.NodeCreationTimestamp,
@@ -74,7 +92,8 @@ func NewServer(addr, introducerAddr string, isIntroducer bool) *Server {
 		BandwidthStats:                  &BandwidthStats{},
 		Hash:                            hashValue,
 		Metadata:                        metadata,
-		FileDirectory:                   "hydfs_" + addr,
+		FileDirectory:                   "hydfs/" + vmName,
+		DownloadDir:                     "download",
 		FailedPendingStabilization:      make(map[string]StabilizationStatus),
 		NewlyJoinedPendingStabilization: make(map[string]StabilizationStatus),
 		stabilizationLock:               sync.Mutex{},
