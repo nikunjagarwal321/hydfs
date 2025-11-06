@@ -68,3 +68,32 @@ type GetFileMetadataResponse struct {
 	Success  bool `json:"success"`
 	Metadata *Metadata
 }
+
+type MultiAppendRequest struct {
+	HyDFSFileName string `json:"hydfs_filename"`
+	LocalFileName string `json:"local_filename"`
+}
+
+type MultiAppendResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+type UpdateAppendOrderRequest struct {
+	FileName string       `json:"file_name"`
+	Appends  []AppendInfo `json:"appends"`
+}
+
+type UpdateAppendOrderResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+type MergeRequest struct {
+	HyDFSFileName string `json:"hydfs_filename"`
+}
+
+type MergeResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}

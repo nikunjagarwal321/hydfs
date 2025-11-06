@@ -142,3 +142,35 @@ func GetKeysMetadata(address string, server *Server, startRange big.Int, endRang
 	err := makeRPCCall(address, "GetFilesMetadata", req, &resp, server)
 	return &resp, err
 }
+
+// CallMultiAppend makes an RPC call to perform multiappend on a remote VM
+func CallMultiAppend(address string, hyDFSfilename string, localFilename string, server *Server) (*MultiAppendResponse, error) {
+	req := &MultiAppendRequest{
+		HyDFSFileName: hyDFSfilename,
+		LocalFileName: localFilename,
+	}
+	var resp MultiAppendResponse
+	err := makeRPCCall(address, "MultiAppend", req, &resp, server)
+	return &resp, err
+}
+
+// CallUpdateAppendOrder makes an RPC call to update append order on a remote node
+func CallUpdateAppendOrder(address string, filename string, appends []AppendInfo, server *Server) (*UpdateAppendOrderResponse, error) {
+	req := &UpdateAppendOrderRequest{
+		FileName: filename,
+		Appends:  appends,
+	}
+	var resp UpdateAppendOrderResponse
+	err := makeRPCCall(address, "UpdateAppendOrder", req, &resp, server)
+	return &resp, err
+}
+
+// CallMerge makes an RPC call to execute merge on a remote node
+func CallMerge(address string, hyDFSfilename string, server *Server) (*MergeResponse, error) {
+	req := &MergeRequest{
+		HyDFSFileName: hyDFSfilename,
+	}
+	var resp MergeResponse
+	err := makeRPCCall(address, "Merge", req, &resp, server)
+	return &resp, err
+}

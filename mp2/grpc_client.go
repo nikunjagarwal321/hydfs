@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	pb "distributed_log_query/proto"
 
@@ -90,11 +91,14 @@ func (s *Server) ReceiveFileFromNode(targetAddr string, hyDFSfilename string, lo
 		return fmt.Errorf("GetFile RPC failed: %v", err)
 	}
 
-	// Ensure directory exists
-	if err := os.MkdirAll("download", 0755); err != nil {
+	// Ensure download directory exists
+	if err := os.MkdirAll(s.DownloadDir, 0755); err != nil {
 		return fmt.Errorf("failed to ensure directory: %v", err)
 	}
-	f, err := os.Create(localPath)
+
+	// Ensure localPath is in the download directory
+	downloadPath := filepath.Join(s.DownloadDir, filepath.Base(localPath))
+	f, err := os.Create(downloadPath)
 	if err != nil {
 		return fmt.Errorf("failed to create local file: %v", err)
 	}
@@ -113,7 +117,7 @@ func (s *Server) ReceiveFileFromNode(targetAddr string, hyDFSfilename string, lo
 		}
 	}
 
-	ConsolePrintf("File downloaded from %s (gRPC: %s) to %s\n", targetAddr, grpcAddr, localPath)
+	ConsolePrintf("File downloaded from %s (gRPC: %s) to %s\n", targetAddr, grpcAddr, downloadPath)
 	return nil
 }
 

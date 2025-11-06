@@ -41,6 +41,7 @@ func GetPrimaryKeyRange(members []Member, nodeID string) (start, end *big.Int) {
 
 // GetFilesWithinRange returns filenames whose hashes are in (start, end]
 func GetFilesWithinRange(files map[string]FileMetadata, startRange, endRange *big.Int) []string {
+
 	var result []string
 	for name, meta := range files {
 		fileHashPtr := &meta.FileNameHash
@@ -50,13 +51,28 @@ func GetFilesWithinRange(files map[string]FileMetadata, startRange, endRange *bi
 			if cmpStart > 0 && cmpEnd <= 0 {
 				result = append(result, name)
 			}
-		} else {
+		} else { // wrap around the ring
 			if cmpStart > 0 || cmpEnd <= 0 {
 				result = append(result, name)
 			}
 		}
 	}
 	return result
+}
+
+// IsHashInRange checks if a hash value is within the range (start, end]
+// Returns true if hash is in the range, false otherwise
+func IsHashInRange(fileHash, startRange, endRange *big.Int) bool {
+	cmpStart := fileHash.Cmp(startRange)
+	cmpEnd := fileHash.Cmp(endRange)
+
+	if startRange.Cmp(endRange) < 0 {
+		// Normal case: no wrap-around
+		return cmpStart > 0 && cmpEnd <= 0
+	} else {
+		// Wrap-around case
+		return cmpStart > 0 || cmpEnd <= 0
+	}
 }
 
 // GetSuccessors returns the next (n-1) alive successors after nodeID in sorted/liveness-filtered members
@@ -78,12 +94,32 @@ func GetSuccessors(members []Member, nodeID string, n int) []Member {
 }
 
 // TODO: Test this and fix using logs
-func (s *Server) stabilizeRing() {
+func (s *Server) stabilizeRing(filename ...string) {
 	start, end := GetPrimaryKeyRange(s.Members.GetAll(), s.ID())
 	if start == nil || end == nil {
 		return
 	}
-	myFiles := GetFilesWithinRange(s.Metadata.Files, start, end)
+	allFiles := GetFilesWithinRange(s.Metadata.Files, start, end)
+
+	var myFiles []string
+	if len(filename) > 0 && filename[0] != "" {
+		// Check if the provided filename is in the list
+		for _, f := range allFiles {
+			if f == filename[0] {
+				// If filename is in the list, use only that filename
+				myFiles = []string{filename[0]}
+				break
+			}
+		}
+		// If filename not found in list, use the whole list
+		if len(myFiles) == 0 {
+			myFiles = allFiles
+		}
+	} else {
+		// No filename provided, use the whole list
+		myFiles = allFiles
+	}
+
 	successors := GetSuccessors(s.Members.GetAll(), s.ID(), Config.ReplicationFactor)
 
 	for _, successor := range successors {
@@ -148,6 +184,7 @@ func (s *Server) handleReplicationWindowChange(nodeID string) {
 		if GetRingSuccessorIdx(myIdx, i, len(members)) == changedIdx {
 			ConsolePrintf("Node %s in my replication set; triggering stabilization\n", nodeID)
 			s.stabilizeRing()
+			ConsolePrintf("Stabilization completed for node %s\n", nodeID)
 			return
 		}
 	}
