@@ -33,7 +33,7 @@ type Server struct {
 	Hash                            big.Int
 	Metadata                        *Metadata
 	FileDirectory                   string
-	DownloadDir                     string
+	LocalDirectory                  string
 	FailedPendingStabilization      map[string]StabilizationStatus
 	NewlyJoinedPendingStabilization map[string]StabilizationStatus
 	stabilizationLock               sync.Mutex
@@ -77,7 +77,7 @@ func NewServer(addr, introducerAddr string, isIntroducer bool) *Server {
 				ConsolePrintf("[NewServer] Failed to cleanup own directory %s: %v\n", nodeDir, err)
 			}
 		} else {
-			ConsolePrintf("[NewServer] Cleaned up own directory %s\n", nodeDir)
+			LogInfo(true, "[NewServer] Cleaned up own directory %s\n", nodeDir)
 		}
 	}
 
@@ -92,8 +92,8 @@ func NewServer(addr, introducerAddr string, isIntroducer bool) *Server {
 		BandwidthStats:                  &BandwidthStats{},
 		Hash:                            hashValue,
 		Metadata:                        metadata,
-		FileDirectory:                   "hydfs/" + vmName,
-		DownloadDir:                     "download",
+		FileDirectory:                   "../hydfs/" + vmName,
+		LocalDirectory:                  "../localdirectory/" + vmName,
 		FailedPendingStabilization:      make(map[string]StabilizationStatus),
 		NewlyJoinedPendingStabilization: make(map[string]StabilizationStatus),
 		stabilizationLock:               sync.Mutex{},
@@ -131,15 +131,6 @@ func (s *Server) sendTimelyMessagesAsPerProtocol(interval time.Duration) {
 			s.pingSend(Config.Fanout)
 		}
 	}
-}
-
-// fetchMetadataFromNode fetches the file metadata for the range (or file) from a remote node
-func (s *Server) fetchMetadataFromNode(node Member, start, end big.Int) *Metadata {
-	meta, err := GetKeysMetadata(node.Address, globalServer, start, end)
-	if err != nil || meta == nil {
-		return &Metadata{Files: make(map[string]FileMetadata)}
-	}
-	return meta.Metadata
 }
 
 // Monitors and displays bandwidth usage per second

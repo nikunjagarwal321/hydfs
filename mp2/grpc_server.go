@@ -63,6 +63,14 @@ func (h *HyDFSServer) FileTransfer(stream grpc.ClientStreamingServer[pb.FileChun
 		fileData = append(fileData, chunk.GetData()...)
 	}
 
+	// Check if filename is already present in metadata
+	if _, exists := h.server.Metadata.GetFile(filename); exists {
+		return stream.SendAndClose(&pb.UploadStatus{
+			Success: false,
+			Message: fmt.Sprintf("File %s already exists in metadata", filename),
+		})
+	}
+
 	// Save the file
 	if err := h.saveFile(fileData, fileMetadata); err != nil {
 		return stream.SendAndClose(&pb.UploadStatus{
@@ -86,6 +94,8 @@ func (h *HyDFSServer) GetFile(req *pb.FileRequest, stream grpc.ServerStreamingSe
 	filename := req.GetFilename()
 	hydfsDir := h.server.FileDirectory
 
+	ConsolePrintf("RECEIVED GET REQUEST for: file=%s\n", filename)
+
 	meta, ok := h.server.Metadata.GetFile(filename)
 	if !ok {
 		return fmt.Errorf("file %s not found in metadata", filename)
@@ -96,11 +106,11 @@ func (h *HyDFSServer) GetFile(req *pb.FileRequest, stream grpc.ServerStreamingSe
 
 	// Add append file paths
 	for _, appendInfo := range meta.Appends {
+		LogInfo(true, "Appending chunks for Get Request with AppendID:%s\n", appendInfo.AppendID)
 		appendPath := filepath.Join(hydfsDir, appendInfo.AppendID)
 		filePaths = append(filePaths, appendPath)
 	}
 
-	// --- 3️⃣ Read and stream each file sequentially ---
 	buf := make([]byte, 64*1024)
 	for i, path := range filePaths {
 		f, err := os.Open(path)
@@ -144,6 +154,7 @@ func (h *HyDFSServer) GetFile(req *pb.FileRequest, stream grpc.ServerStreamingSe
 			}
 		}
 	}
+	ConsolePrintf("Completed GET REQUEST for: file=%s\n", filename)
 
 	return nil
 }
@@ -178,6 +189,13 @@ func (h *HyDFSServer) AppendTransfer(stream pb.HyDFSService_AppendTransferServer
 		appendData = append(appendData, chunk.GetData()...)
 	}
 
+	if _, ok := h.server.Metadata.GetFile(filename); !ok {
+		return stream.SendAndClose(&pb.UploadStatus{
+			Success: false,
+			Message: fmt.Sprintf("file %s does not exist", filename),
+		})
+	}
+
 	// Compose AppendInfo from chunk meta info
 	appendInfo = AppendInfo{
 		FileName:        filename,
@@ -205,11 +223,13 @@ func (h *HyDFSServer) AppendTransfer(stream pb.HyDFSService_AppendTransferServer
 		})
 	}
 
-	// Store/insert append to metadata (ensure server.Metadata.Files exists)
-	fileMeta, _ := h.server.Metadata.GetFile(filename)
-
-	fileMeta.insertAppend(appendInfo)
-	h.server.Metadata.AddFile(fileMeta)
+	// Store/insert append to metadata
+	if err := h.server.Metadata.AppendToFile(filename, appendInfo); err != nil {
+		return stream.SendAndClose(&pb.UploadStatus{
+			Success: false,
+			Message: fmt.Sprintf("append metadata update failed: %v", err),
+		})
+	}
 	ConsolePrintf("Stored append metadata for file: %s, appendId: %s\n", filename, appendId)
 
 	return stream.SendAndClose(&pb.UploadStatus{

@@ -71,12 +71,12 @@ func (s *Server) SendFileToNode(targetAddr string, data []byte, metadata FileMet
 		return fmt.Errorf("upload failed: %s", status.GetMessage())
 	}
 
-	ConsolePrintf("File sent to %s (gRPC: %s): %s\n", targetAddr, grpcAddr, status.GetMessage())
+	ConsolePrintf("File sent to %s | %s : %s\n", AddressToVMName[targetAddr], targetAddr, status.GetMessage())
 	return nil
 }
 
 // ReceiveFileFromNode downloads a file from target node via server streaming and writes to local path
-func (s *Server) ReceiveFileFromNode(targetAddr string, hyDFSfilename string, localPath string) error {
+func (s *Server) ReceiveFileFromNode(targetAddr string, hyDFSfilename string, directory string, localPath string) error {
 	grpcAddr := convertToGRPCAddress(targetAddr)
 
 	conn, err := grpc.Dial(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -92,19 +92,15 @@ func (s *Server) ReceiveFileFromNode(targetAddr string, hyDFSfilename string, lo
 	}
 
 	// Ensure download directory exists
-	if err := os.MkdirAll(s.DownloadDir, 0755); err != nil {
+	if err := os.MkdirAll(directory, 0755); err != nil {
 		return fmt.Errorf("failed to ensure directory: %v", err)
 	}
 
 	// Ensure localPath is in the download directory
-	downloadPath := filepath.Join(s.DownloadDir, filepath.Base(localPath))
-	f, err := os.Create(downloadPath)
-	if err != nil {
-		return fmt.Errorf("failed to create local file: %v", err)
-	}
-	defer f.Close()
+	downloadPath := filepath.Join(directory, filepath.Base(localPath))
 
 	for {
+		// TODO: CHECK why not appending. Is it because of EOF
 		chunk, err := stream.Recv()
 		if err == io.EOF {
 			break
@@ -112,12 +108,18 @@ func (s *Server) ReceiveFileFromNode(targetAddr string, hyDFSfilename string, lo
 		if err != nil {
 			return fmt.Errorf("stream recv error: %v", err)
 		}
+
+		f, err := os.Create(downloadPath)
+		if err != nil {
+			return fmt.Errorf("failed to create local file: %v", err)
+		}
+		defer f.Close()
 		if _, err := f.Write(chunk.GetData()); err != nil {
 			return fmt.Errorf("write error: %v", err)
 		}
 	}
 
-	ConsolePrintf("File downloaded from %s (gRPC: %s) to %s\n", targetAddr, grpcAddr, downloadPath)
+	ConsolePrintf("File downloaded from %s | %s to %s\n", AddressToVMName[targetAddr], targetAddr, downloadPath)
 	return nil
 }
 

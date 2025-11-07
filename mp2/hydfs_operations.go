@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -22,7 +23,8 @@ func (s *Server) handleCreate(localFilename, hyDFSfilename string) {
 	}
 
 	// Read local file
-	fileData, err := os.ReadFile(localFilename)
+	localPath := filepath.Join(s.LocalDirectory, filepath.Base(localFilename))
+	fileData, err := os.ReadFile(localPath)
 	if err != nil {
 		ConsolePrintf("Error reading file %s: %v\n", localFilename, err)
 		return
@@ -50,7 +52,7 @@ func (s *Server) handleCreate(localFilename, hyDFSfilename string) {
 
 	for _, targetMember := range targetMembers {
 		go func(addr string) {
-			ConsolePrintf("Sending file to %s...\n", convertToGRPCAddress(addr))
+			ConsolePrintf("Sending file to %s | %s...\n", AddressToVMName[addr], convertToGRPCAddress(addr))
 			if err := s.SendFileToNode(addr, fileData, fileMetadata); err != nil {
 				ConsolePrintf("Error sending file to %s: %v\n", convertToGRPCAddress(addr), err)
 				successChan <- false
@@ -92,7 +94,7 @@ func (s *Server) handleGet(hyDFSfilename, localFilename string) {
 
 	// Use gRPC GetFile similar to handleCreate's SendFileToNode
 	downloadFromNode := func(address string) error {
-		return s.ReceiveFileFromNode(address, hyDFSfilename, localFilename)
+		return s.ReceiveFileFromNode(address, hyDFSfilename, s.LocalDirectory, localFilename)
 	}
 
 	// Try primary first, then replicas sequentially. Each attempt has ReadTimeout.
@@ -119,35 +121,35 @@ func (s *Server) handleGet(hyDFSfilename, localFilename string) {
 
 func (s *Server) handleAppend(localFilename, hyDFSfilename string) {
 	fileHash := HashToMbits(hyDFSfilename)
-	ConsolePrintf("File hash for %s: %s\n", hyDFSfilename, fileHash.String())
+	LogInfo(true, "File hash for %s: %s\n", hyDFSfilename, fileHash.String())
 
 	targetMembers := s.findTargetNodes(fileHash, Config.ReplicationFactor)
 	if len(targetMembers) == 0 {
 		ConsolePrintf("No suitable nodes found for file %s\n", hyDFSfilename)
 		return
 	}
-
-	fileData, err := os.ReadFile(localFilename)
+	localPath := filepath.Join(s.LocalDirectory, filepath.Base(localFilename))
+	fileData, err := os.ReadFile(localPath)
 	if err != nil {
 		ConsolePrintf("Error reading file %s: %v\n", localFilename, err)
 		return
 	}
 
-	ConsolePrintf("Read file %s (%d bytes)\n", localFilename, len(fileData))
+	LogInfo(true, "Read file %s (%d bytes)\n", localFilename, len(fileData))
 
 	appendContentHash := fmt.Sprintf("%x", sha256.Sum256(fileData))
-	clientTimestamp := fmt.Sprintf("%d_%s", time.Now().Unix(), AddressToVMName[s.Addr])
+	clientTimestamp := fmt.Sprintf("%d", time.Now().Unix())
 
 	appendInfo := AppendInfo{
 		FileName:        hyDFSfilename,
 		AppendHash:      appendContentHash,
-		AppendID:        fmt.Sprintf("%s_%s", hyDFSfilename, clientTimestamp),
+		AppendID:        fmt.Sprintf("%s_%s_%s", hyDFSfilename, clientTimestamp, AddressToVMName[s.Addr]),
 		ClientTimestamp: clientTimestamp,
 		ClientID:        s.ID(),
 		Size:            int64(len(fileData)),
 	}
 
-	ConsolePrintf("Created append metadata: %+v\n", appendInfo)
+	LogInfo(true, "Created append metadata: %+v\n", appendInfo)
 
 	// 5. Send file to all alive replicas (concurrently)
 	type result struct {
@@ -171,12 +173,12 @@ func (s *Server) handleAppend(localFilename, hyDFSfilename string) {
 func (s *Server) handleMergeCommand(hyDFSfilename string) {
 	// Hash the filename to get its hash value
 	fileHash := HashToMbits(hyDFSfilename)
-	ConsolePrintf("[handleMergeCommand] File hash for %s: %s\n", hyDFSfilename, fileHash.String())
+	LogInfo(true, "[handleMergeCommand] File hash for %s: %s\n", hyDFSfilename, fileHash.String())
 
 	// Get current node's primary key range
 	start, end := GetPrimaryKeyRange(s.Members.GetAll(), s.ID())
 	if start == nil || end == nil {
-		ConsolePrintf("[handleMergeCommand] Could not determine primary key range\n")
+		LogError(true, "[handleMergeCommand] Could not determine primary key range\n")
 		return
 	}
 
@@ -185,12 +187,12 @@ func (s *Server) handleMergeCommand(hyDFSfilename string) {
 	inRange := IsHashInRange(fileHashPtr, start, end)
 
 	if inRange {
-		ConsolePrintf("[handleMergeCommand] File %s is in current node's primary range, executing merge\n", hyDFSfilename)
+		LogInfo(true, "[handleMergeCommand] File %s is in current node's primary range, executing merge\n", hyDFSfilename)
 		s.executeMerge(hyDFSfilename)
 	} else {
-		ConsolePrintf("[handleMergeCommand] File %s is not in current node's primary range (range: %s - %s)\n",
+		LogInfo(true, "[handleMergeCommand] File %s is not in current node's primary range (range: %s - %s)\n",
 			hyDFSfilename, start.String(), end.String())
-		ConsolePrintf("[handleMergeCommand] Finding primary node for this file\n")
+		LogInfo(true, "[handleMergeCommand] Finding primary node for this file\n")
 
 		// Find target nodes for the file hash
 		targetMembers := s.findTargetNodes(fileHash, Config.ReplicationFactor)
@@ -201,19 +203,19 @@ func (s *Server) handleMergeCommand(hyDFSfilename string) {
 
 		// Primary node is the first target member
 		primaryNode := targetMembers[0]
-		ConsolePrintf("[handleMergeCommand] Primary node for file %s: %s (%s)\n",
+		LogInfo(true, "[handleMergeCommand] Primary node for file %s: %s (%s)\n",
 			hyDFSfilename, primaryNode.ID(), primaryNode.Address)
 
 		// Send RPC to primary node to execute merge
 		resp, err := CallMerge(primaryNode.Address, hyDFSfilename, s)
 		if err != nil {
-			ConsolePrintf("[handleMergeCommand] Failed to send merge RPC to primary node %s: %v\n",
+			LogError(true, "[handleMergeCommand] Failed to send merge RPC to primary node %s: %v\n",
 				primaryNode.ID(), err)
 		} else if !resp.Success {
-			ConsolePrintf("[handleMergeCommand] Merge operation failed on primary node %s: %s\n",
+			LogError(true, "[handleMergeCommand] Merge operation failed on primary node %s: %s\n",
 				primaryNode.ID(), resp.Message)
 		} else {
-			ConsolePrintf("[handleMergeCommand] Merge operation completed on primary node %s: %s\n",
+			LogError(true, "[handleMergeCommand] Merge operation completed on primary node %s: %s\n",
 				primaryNode.ID(), resp.Message)
 		}
 	}
@@ -272,6 +274,125 @@ func (s *Server) handleMultiAppend(hyDFSfilename string, vmNames []string, local
 	ConsolePrintf("MultiAppend completed: %d/%d successful\n", successCount, len(vmNames))
 }
 
+// handleLS lists all VM addresses and IDs where a file is stored, along with the file ID
+func (s *Server) handleLS(hyDFSfilename string) {
+	// Hash the filename to get the file ID
+	fileHash := HashToMbits(hyDFSfilename)
+	fileID := fileHash.String()
+
+	ConsolePrintf("File: %s\n", hyDFSfilename)
+	ConsolePrintf("FileID: %s\n", fileID)
+
+	// Find all target nodes where the file is stored (primary + replicas)
+	targetMembers := s.findTargetNodes(fileHash, Config.ReplicationFactor)
+
+	if len(targetMembers) == 0 {
+		ConsolePrintf("No nodes found for file %s\n", hyDFSfilename)
+		return
+	}
+
+	ConsolePrintf("Stored on node(s):\n")
+	for _, member := range targetMembers {
+		fileMetadataResponse, err := GetFileMetadata(member.Address, s, hyDFSfilename)
+		// if error or metadata response does not contain filename, dont print
+		if err != nil {
+			continue
+		}
+		if fileMetadataResponse == nil || !fileMetadataResponse.Success || fileMetadataResponse.Metadata == nil || fileMetadataResponse.Metadata.Files == nil {
+			continue
+		}
+		if _, exists := fileMetadataResponse.Metadata.Files[hyDFSfilename]; !exists {
+			continue
+		}
+		vmName := AddressToVMName[member.Address]
+		if vmName == "" {
+			vmName = member.Address // Fallback to address if VM name not found
+		}
+		ConsolePrintf(" VM: %s | Address: %s | ID: %s | Hash: %s\n",
+			vmName, member.Address, member.ID(), member.Hash.String())
+	}
+}
+
+// handleListStore lists all files stored on this VM's HyDFS along with their fileIDs
+func (s *Server) handleListStore() {
+	// Get VM name for this process
+	vmName := AddressToVMName[s.Addr]
+	if vmName == "" {
+		vmName = s.Addr // Fallback to address if VM name not found
+	}
+
+	// Get process/VM's ID on the ring
+	vmID := s.ID()
+
+	ConsolePrintf("VM: %s | Address: %s | ID:  %s | Hash: %s\n", vmName, s.Addr, vmID, s.Hash.String())
+
+	// Get all files stored in this VM's metadata
+	fileNames := s.Metadata.ListFiles()
+
+	if len(fileNames) == 0 {
+		ConsolePrintf("No files stored on this VM's HyDFS\n")
+		return
+	}
+
+	ConsolePrintf("Files stored on this VM's HyDFS (%d file(s)):\n", len(fileNames))
+	for i, filename := range fileNames {
+		fileMeta, ok := s.Metadata.GetFile(filename)
+		if !ok {
+			continue
+		}
+		fileID := fileMeta.FileNameHash.String()
+		ConsolePrintf("  [%d] File: %s | FileID: %s\n", i+1, filename, fileID)
+	}
+}
+
+// handleGetFromReplica gets a file from a specific replica VM and stores it locally
+func (s *Server) handleGetFromReplica(vmID, hyDFSfilename, localFilename string) {
+	// Map VM ID to address using NodeMap
+	vmAddress, ok := NodeMap[vmID]
+	if !ok {
+		ConsolePrintf("[getfromreplica] Invalid VM ID: %s (not found in NodeMap)\n", vmID)
+		return
+	}
+
+	ConsolePrintf("[getfromreplica] Fetching file %s from replica %s (%s)\n", hyDFSfilename, vmID, vmAddress)
+
+	// Use ReceiveFileFromNode to download from the specific VM address
+	err := s.ReceiveFileFromNode(vmAddress, hyDFSfilename, s.LocalDirectory, localFilename)
+	if err != nil {
+		ConsolePrintf("[getfromreplica] Failed to get file %s from %s (%s): %v\n", hyDFSfilename, vmID, vmAddress, err)
+		return
+	}
+
+	ConsolePrintf("[getfromreplica] Successfully retrieved file %s from %s (%s) and saved as %s\n", hyDFSfilename, vmID, vmAddress, localFilename)
+}
+
+func (s *Server) executeMerge(hyDFSfilename string) {
+	successors := GetSuccessors(s.Members.GetAll(), s.ID(), Config.ReplicationFactor)
+	if len(successors) == 0 {
+		LogError(true, "[handleMerge] No successors found\n")
+		return
+	}
+
+	localMeta, ok := s.Metadata.GetFile(hyDFSfilename)
+	if !ok {
+		LogError(true, "[handleMerge] File %s not found locally, skipping\n", hyDFSfilename)
+		return
+	}
+
+	localAppendIDs := make([]string, len(localMeta.Appends))
+	for i, app := range localMeta.Appends {
+		localAppendIDs[i] = app.AppendID
+	}
+
+	for _, successor := range successors {
+		if s.ensureRemoteFileInSync(successor, hyDFSfilename, localMeta, localAppendIDs) {
+			s.syncRemoteAppendOrder(successor, hyDFSfilename, localMeta, localAppendIDs)
+		}
+	}
+
+	ConsolePrintf("[handleMerge] Merge operation completed\n")
+}
+
 // findTargetNodes finds the primary node and replicas for a given file hash
 func (s *Server) findTargetNodes(fileHash big.Int, replicationFactor int) []Member {
 	members := s.Members.GetAll()
@@ -321,185 +442,98 @@ func (s *Server) findTargetNodes(fileHash big.Int, replicationFactor int) []Memb
 	return targetMembers
 }
 
-func (s *Server) executeMerge(hyDFSfilename ...string) {
-	// Get primary key range
-	start, end := GetPrimaryKeyRange(s.Members.GetAll(), s.ID())
-	if start == nil || end == nil {
-		ConsolePrintf("[handleMerge] Could not determine primary key range\n")
-		return
-	}
-
-	// Get files in primary key range
-	allFiles := GetFilesWithinRange(s.Metadata.Files, start, end)
-	ConsolePrintf("[handleMerge] Found %d files in primary key range\n", len(allFiles))
-
-	// If filename is provided, check if it's in allFiles and filter to only that file
-	if len(hyDFSfilename) > 0 && hyDFSfilename[0] != "" {
-		filename := hyDFSfilename[0]
-		found := false
-		for _, f := range allFiles {
-			if f == filename {
-				found = true
-				break
-			}
-		}
-		if found {
-			allFiles = []string{filename}
-			ConsolePrintf("[handleMerge] Processing single file: %s\n", filename)
-		} else {
-			ConsolePrintf("[handleMerge] File %s not found in primary key range, processing all files\n", filename)
-		}
-	}
-
-	// Get successors
-	successors := GetSuccessors(s.Members.GetAll(), s.ID(), Config.ReplicationFactor)
-	if len(successors) == 0 {
-		ConsolePrintf("[handleMerge] No successors found\n")
-		return
-	}
-
-	// For each file in primary range, ensure append order matches on all successors
-	for _, filename := range allFiles {
-		// Get local metadata (source of truth)
-		localMeta, ok := s.Metadata.GetFile(filename)
-		if !ok {
-			ConsolePrintf("[handleMerge] File %s not found locally, skipping\n", filename)
-			continue
-		}
-
-		localAppendIDs := make([]string, len(localMeta.Appends))
-		for i, app := range localMeta.Appends {
-			localAppendIDs[i] = app.AppendID
-		}
-
-		// For each successor, check and update append order
-		for _, successor := range successors {
-			// Fetch metadata from successor
-			succMeta := s.fetchMetadataFromNode(successor, *start, *end)
-			remoteMeta, exists := succMeta.Files[filename]
-
-			if !exists {
-				ConsolePrintf("[handleMerge] File %s not found on successor %s, skipping order check\n", filename, successor.ID())
-				continue
-			}
-
-			// Compare append order
-			remoteAppendIDs := make([]string, len(remoteMeta.Appends))
-			for i, app := range remoteMeta.Appends {
-				remoteAppendIDs[i] = app.AppendID
-			}
-
-			// Check if order is identical
-			orderMatches := len(localAppendIDs) == len(remoteAppendIDs)
-			if orderMatches {
-				for i := 0; i < len(localAppendIDs); i++ {
-					if localAppendIDs[i] != remoteAppendIDs[i] {
-						orderMatches = false
-						break
-					}
-				}
-			}
-
-			if !orderMatches {
-				ConsolePrintf("[handleMerge] Append order differs for file %s on successor %s, updating...\n", filename, successor.ID())
-				ConsolePrintf("[handleMerge] Local order: %v\n", localAppendIDs)
-				ConsolePrintf("[handleMerge] Remote order: %v\n", remoteAppendIDs)
-
-				// Update append order on successor
-				resp, err := CallUpdateAppendOrder(successor.Address, filename, localMeta.Appends, s)
-				if err != nil {
-					ConsolePrintf("[handleMerge] Failed to update append order on %s: %v\n", successor.ID(), err)
-				} else if !resp.Success {
-					ConsolePrintf("[handleMerge] Update append order failed on %s: %s\n", successor.ID(), resp.Message)
-				} else {
-					ConsolePrintf("[handleMerge] Successfully updated append order for file %s on %s\n", filename, successor.ID())
-				}
-			} else {
-				ConsolePrintf("[handleMerge] Append order matches for file %s on successor %s\n", filename, successor.ID())
-			}
-		}
-	}
-
-	ConsolePrintf("[handleMerge] Merge operation completed\n")
-}
-
-// handleLS lists all VM addresses and IDs where a file is stored, along with the file ID
-func (s *Server) handleLS(hyDFSfilename string) {
-	// Hash the filename to get the file ID
-	fileHash := HashToMbits(hyDFSfilename)
-	fileID := fileHash.String()
-
-	ConsolePrintf("File: %s\n", hyDFSfilename)
-	ConsolePrintf("FileID: %s\n", fileID)
-
-	// Find all target nodes where the file is stored (primary + replicas)
-	targetMembers := s.findTargetNodes(fileHash, Config.ReplicationFactor)
-
-	if len(targetMembers) == 0 {
-		ConsolePrintf("No nodes found for file %s\n", hyDFSfilename)
-		return
-	}
-
-	ConsolePrintf("Stored on %d node(s):\n", len(targetMembers))
-	for i, member := range targetMembers {
-		vmName := AddressToVMName[member.Address]
-		if vmName == "" {
-			vmName = member.Address // Fallback to address if VM name not found
-		}
-		ConsolePrintf("  [%d] VM: %s | Address: %s | ID: %s | Hash: %s\n",
-			i+1, vmName, member.Address, member.ID(), member.Hash.String())
-	}
-}
-
-// handleListStore lists all files stored on this VM's HyDFS along with their fileIDs
-func (s *Server) handleListStore() {
-	// Get VM name for this process
-	vmName := AddressToVMName[s.Addr]
-	if vmName == "" {
-		vmName = s.Addr // Fallback to address if VM name not found
-	}
-
-	// Get process/VM's ID on the ring
-	vmID := s.ID()
-
-	ConsolePrintf("VM: %s | Address: %s | ID: %s\n", vmName, s.Addr, vmID)
-
-	// Get all files stored in this VM's metadata
-	fileNames := s.Metadata.ListFiles()
-
-	if len(fileNames) == 0 {
-		ConsolePrintf("No files stored on this VM's HyDFS\n")
-		return
-	}
-
-	ConsolePrintf("Files stored on this VM's HyDFS (%d file(s)):\n", len(fileNames))
-	for i, filename := range fileNames {
-		fileMeta, ok := s.Metadata.GetFile(filename)
-		if !ok {
-			continue
-		}
-		fileID := fileMeta.FileNameHash.String()
-		ConsolePrintf("  [%d] File: %s | FileID: %s\n", i+1, filename, fileID)
-	}
-}
-
-// handleGetFromReplica gets a file from a specific replica VM and stores it locally
-func (s *Server) handleGetFromReplica(vmID, hyDFSfilename, localFilename string) {
-	// Map VM ID to address using NodeMap
-	vmAddress, ok := NodeMap[vmID]
-	if !ok {
-		ConsolePrintf("[getfromreplica] Invalid VM ID: %s (not found in NodeMap)\n", vmID)
-		return
-	}
-
-	ConsolePrintf("[getfromreplica] Fetching file %s from replica %s (%s)\n", hyDFSfilename, vmID, vmAddress)
-
-	// Use ReceiveFileFromNode to download from the specific VM address
-	err := s.ReceiveFileFromNode(vmAddress, hyDFSfilename, localFilename)
+func (s *Server) ensureRemoteFileInSync(successor Member, filename string, localMeta FileMetadata, localAppendIDs []string) bool {
+	succMeta, err := GetFileMetadata(successor.Address, s, filename)
 	if err != nil {
-		ConsolePrintf("[getfromreplica] Failed to get file %s from %s (%s): %v\n", hyDFSfilename, vmID, vmAddress, err)
+		LogError(true, "[handleMerge] successor %s missing metadata for %s: %v\n", successor.Address, filename, err)
+		return false
+	}
+
+	remoteMeta, exists := succMeta.Metadata.Files[filename]
+	if !exists {
+		LogInfo(true, "[handleMerge] Remote file %s missing on %s, triggering stabilization\n", filename, successor.ID())
+		s.stabilizeRing(filename)
+		return false
+	}
+
+	if !filesAndAppendsMatch(localMeta, remoteMeta) {
+		LogInfo(true, "[handleMerge] Remote file %s out of sync on %s; stabilizing\n", filename, successor.ID())
+		s.stabilizeRing(filename)
+
+	}
+
+	return true
+}
+
+func filesAndAppendsMatch(localMeta FileMetadata, remoteMeta FileMetadata) bool {
+	if localMeta.FileContentHash != remoteMeta.FileContentHash {
+		return false
+	}
+
+	if len(localMeta.Appends) != len(remoteMeta.Appends) {
+		return false
+	}
+
+	localIDs := make(map[string]struct{}, len(localMeta.Appends))
+	for _, app := range localMeta.Appends {
+		localIDs[app.AppendID] = struct{}{}
+	}
+
+	for _, app := range remoteMeta.Appends {
+		if _, exists := localIDs[app.AppendID]; !exists {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (s *Server) syncRemoteAppendOrder(successor Member, filename string, localMeta FileMetadata, localAppendIDs []string) {
+	succMeta, err := GetFileMetadata(successor.Address, s, filename)
+	if err != nil {
+		LogError(true, "[handleMerge] Failed to fetch metadata for order sync from %s: %v\n", successor.ID(), err)
 		return
 	}
 
-	ConsolePrintf("[getfromreplica] Successfully retrieved file %s from %s (%s) and saved as %s\n", hyDFSfilename, vmID, vmAddress, localFilename)
+	remoteMeta, exists := succMeta.Metadata.Files[filename]
+	if !exists {
+		LogError(true, "[handleMerge] Remote file %s missing while syncing order on %s\n", filename, successor.ID())
+		return
+	}
+
+	if ordersMatch(localAppendIDs, remoteMeta.Appends) {
+		LogInfo(true, "[handleMerge] Append order matches for file %s on successor %s\n", filename, successor.ID())
+		return
+	}
+
+	LogInfo(true, "[handleMerge] Append order differs for file %s on successor %s, updating...\n", filename, successor.ID())
+	LogInfo(true, "[handleMerge] Local order: %v\n", localAppendIDs)
+	LogInfo(true, "[handleMerge] Remote order: %v\n", remoteMeta.Appends)
+
+	resp, err := CallUpdateAppendOrder(successor.Address, filename, localMeta.Appends, s)
+	if err != nil {
+		LogError(true, "[handleMerge] Failed to update append order on %s: %v\n", successor.ID(), err)
+		return
+	}
+
+	if !resp.Success {
+		LogError(true, "[handleMerge] Update append order failed on %s: %s\n", successor.ID(), resp.Message)
+		return
+	}
+
+	LogInfo(true, "[handleMerge] Successfully updated append order for file %s on %s\n", filename, successor.ID())
+}
+
+func ordersMatch(localAppendIDs []string, remoteAppends []AppendInfo) bool {
+	if len(localAppendIDs) != len(remoteAppends) {
+		return false
+	}
+
+	for i := 0; i < len(localAppendIDs); i++ {
+		if localAppendIDs[i] != remoteAppends[i].AppendID {
+			return false
+		}
+	}
+
+	return true
 }

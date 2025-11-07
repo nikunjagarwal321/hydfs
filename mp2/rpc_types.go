@@ -59,7 +59,7 @@ type ProtocolSwitchResponse struct {
 	Success bool `json:"success"`
 }
 
-type GetFileMetadataRequest struct {
+type GetFilesMetadataRequest struct {
 	KeyStartRange big.Int `json:"sender_address"`
 	KeyEndRange   big.Int `json:"protocol"`
 }
@@ -67,6 +67,10 @@ type GetFileMetadataRequest struct {
 type GetFileMetadataResponse struct {
 	Success  bool `json:"success"`
 	Metadata *Metadata
+}
+
+type GetFileMetadataRequest struct {
+	Filename string
 }
 
 type MultiAppendRequest struct {
