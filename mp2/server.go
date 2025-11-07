@@ -176,3 +176,21 @@ func (s *Server) increaseHeartbeat(heartbeatInterval time.Duration) {
 
 	}
 }
+
+func (s *Server) garbageCollectorProcess(garbageCollectorInterval time.Duration) {
+	ticker := time.NewTicker(garbageCollectorInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		s.deleteFilesOutsideMyRange()
+	}
+}
+
+func (s *Server) mergeMetadataProcess(mergeInterval time.Duration) {
+	ticker := time.NewTicker(mergeInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		s.executeMergeForAllFiles()
+	}
+}

@@ -151,29 +151,43 @@ func (s *Server) handleAppend(localFilename, hyDFSfilename string) {
 
 	LogInfo(true, "Created append metadata: %+v\n", appendInfo)
 
-	// 5. Send file to all alive replicas (concurrently)
-	type result struct {
-		err error
-	}
-	done := make(chan result, len(targetMembers))
-
+	successChan := make(chan bool, len(targetMembers))
+	doneChan := make(chan struct{})
 	for _, targetMember := range targetMembers {
-		targetAddr := targetMember.Address
 		go func(addr string) {
-			// Each replica receives the file + append metadata
-			err := s.SendAppendToNode(addr, fileData, appendInfo)
-			done <- result{err: err}
-		}(targetAddr)
+			ConsolePrintf("Sending file to %s | %s...\n", AddressToVMName[addr], convertToGRPCAddress(addr))
+			if err := s.SendAppendToNode(addr, fileData, appendInfo); err != nil {
+				ConsolePrintf("Error sending file to %s: %v\n", convertToGRPCAddress(addr), err)
+				successChan <- false
+			} else {
+				successChan <- true
+			}
+		}(targetMember.Address)
 	}
 
-	ConsolePrintf("Append operation completed successfully for %s\n", hyDFSfilename)
+	go func() {
+		successCount := 0
+		for i := 0; i < len(targetMembers); i++ {
+			if <-successChan {
+				successCount++
+			}
+		}
+		if successCount == 0 {
+			ConsolePrintf("APPEND FAILED: all replicas failed for file %s\n", hyDFSfilename)
+		} else {
+			ConsolePrintf("File Append completed: %s -> %s (received %d/%d responses)\n", localFilename, hyDFSfilename, successCount, len(targetMembers))
+		}
+		close(doneChan)
+	}()
+
+	<-doneChan
 }
 
 // handleMergeCommand processes the merge command from CLI
 func (s *Server) handleMergeCommand(hyDFSfilename string) {
 	// Hash the filename to get its hash value
 	fileHash := HashToMbits(hyDFSfilename)
-	LogInfo(true, "[handleMergeCommand] File hash for %s: %s\n", hyDFSfilename, fileHash.String())
+	ConsolePrintf("Started Merge for file for %s | Hash: %s\n", hyDFSfilename, fileHash.String())
 
 	// Get current node's primary key range
 	start, end := GetPrimaryKeyRange(s.Members.GetAll(), s.ID())
@@ -189,6 +203,7 @@ func (s *Server) handleMergeCommand(hyDFSfilename string) {
 	if inRange {
 		LogInfo(true, "[handleMergeCommand] File %s is in current node's primary range, executing merge\n", hyDFSfilename)
 		s.executeMerge(hyDFSfilename)
+		ConsolePrintf("Merge completed for file:%s\n", hyDFSfilename)
 	} else {
 		LogInfo(true, "[handleMergeCommand] File %s is not in current node's primary range (range: %s - %s)\n",
 			hyDFSfilename, start.String(), end.String())
@@ -209,13 +224,13 @@ func (s *Server) handleMergeCommand(hyDFSfilename string) {
 		// Send RPC to primary node to execute merge
 		resp, err := CallMerge(primaryNode.Address, hyDFSfilename, s)
 		if err != nil {
-			LogError(true, "[handleMergeCommand] Failed to send merge RPC to primary node %s: %v\n",
+			ConsolePrintf("[handleMergeCommand] Failed to send merge RPC to primary node %s: %v\n",
 				primaryNode.ID(), err)
 		} else if !resp.Success {
-			LogError(true, "[handleMergeCommand] Merge operation failed on primary node %s: %s\n",
+			ConsolePrintf("[handleMergeCommand] Merge operation failed on primary node %s: %s\n",
 				primaryNode.ID(), resp.Message)
 		} else {
-			LogError(true, "[handleMergeCommand] Merge operation completed on primary node %s: %s\n",
+			ConsolePrintf("[handleMergeCommand] Merge operation completed on primary node %s: %s\n",
 				primaryNode.ID(), resp.Message)
 		}
 	}
@@ -367,6 +382,7 @@ func (s *Server) handleGetFromReplica(vmID, hyDFSfilename, localFilename string)
 }
 
 func (s *Server) executeMerge(hyDFSfilename string) {
+	startTime := time.Now()
 	successors := GetSuccessors(s.Members.GetAll(), s.ID(), Config.ReplicationFactor)
 	if len(successors) == 0 {
 		LogError(true, "[handleMerge] No successors found\n")
@@ -389,8 +405,10 @@ func (s *Server) executeMerge(hyDFSfilename string) {
 			s.syncRemoteAppendOrder(successor, hyDFSfilename, localMeta, localAppendIDs)
 		}
 	}
+	duration := time.Since(startTime)
+	LogInfo(true, "Merge completed for node %s (filename=%s) in %s", s.ID(), hyDFSfilename, duration)
 
-	ConsolePrintf("[handleMerge] Merge operation completed\n")
+	LogInfo(true, "[handleMerge] Merge operation completed\n")
 }
 
 // findTargetNodes finds the primary node and replicas for a given file hash
@@ -536,4 +554,12 @@ func ordersMatch(localAppendIDs []string, remoteAppends []AppendInfo) bool {
 	}
 
 	return true
+}
+
+func (s *Server) executeMergeForAllFiles() {
+	fileNames := s.Metadata.ListFiles()
+	LogInfo(true, "[executeMergeForAllFiles] Executing Merge for all files\n")
+	for _, name := range fileNames {
+		s.executeMerge(name)
+	}
 }

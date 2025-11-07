@@ -56,6 +56,9 @@ func (s *Server) SendFileToNode(targetAddr string, data []byte, metadata FileMet
 		if err := stream.Send(chunk); err != nil {
 			return fmt.Errorf("failed to send chunk: %v", err)
 		}
+		if s.BandwidthStats != nil {
+			s.BandwidthStats.AddSent(uint64(len(chunk.GetData())))
+		}
 	}
 
 	// Log metadata for debugging
@@ -91,30 +94,34 @@ func (s *Server) ReceiveFileFromNode(targetAddr string, hyDFSfilename string, di
 		return fmt.Errorf("GetFile RPC failed: %v", err)
 	}
 
-	// Ensure download directory exists
 	if err := os.MkdirAll(directory, 0755); err != nil {
 		return fmt.Errorf("failed to ensure directory: %v", err)
 	}
-
-	// Ensure localPath is in the download directory
 	downloadPath := filepath.Join(directory, filepath.Base(localPath))
 
+	f, err := os.Create(downloadPath)
+	if err != nil {
+		return fmt.Errorf("failed to create local file: %v", err)
+	}
+
 	for {
-		// TODO: CHECK why not appending. Is it because of EOF
 		chunk, err := stream.Recv()
 		if err == io.EOF {
 			break
 		}
+		if s.BandwidthStats != nil {
+			s.BandwidthStats.AddReceived(uint64(len(chunk.GetData())))
+		}
 		if err != nil {
+			f.Close()
+			os.Remove(downloadPath)
 			return fmt.Errorf("stream recv error: %v", err)
 		}
 
-		f, err := os.Create(downloadPath)
-		if err != nil {
-			return fmt.Errorf("failed to create local file: %v", err)
-		}
 		defer f.Close()
 		if _, err := f.Write(chunk.GetData()); err != nil {
+			f.Close()
+			os.Remove(downloadPath)
 			return fmt.Errorf("write error: %v", err)
 		}
 	}
@@ -164,6 +171,9 @@ func (s *Server) SendAppendToNode(targetAddr string, data []byte, appendInfo App
 
 		if err := stream.Send(chunk); err != nil {
 			return fmt.Errorf("failed to send append chunk: %v", err)
+		}
+		if s.BandwidthStats != nil {
+			s.BandwidthStats.AddSent(uint64(len(chunk.GetData())))
 		}
 	}
 

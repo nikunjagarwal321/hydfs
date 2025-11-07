@@ -114,14 +114,14 @@ func (ds *DistributedSystemService) GetFileMetadata(req *GetFileMetadataRequest,
 
 // MultiAppend handles multiappend RPC call - calls handleAppend on the server
 func (ds *DistributedSystemService) MultiAppend(req *MultiAppendRequest, resp *MultiAppendResponse) error {
-	ConsolePrintf("Received MultiAppend request: HyDFSfilename=%s, LocalFilename=%s", req.HyDFSFileName, req.LocalFileName)
+	ConsolePrintf("Received MultiAppend request: HyDFSfilename=%s, LocalFilename=%s\n", req.HyDFSFileName, req.LocalFileName)
 
 	// Call handleAppend on the server
 	ds.server.handleAppend(req.LocalFileName, req.HyDFSFileName)
 
 	resp.Success = true
 	resp.Message = fmt.Sprintf("Append operation completed for %s", req.HyDFSFileName)
-	ConsolePrintf("MultiAppend completed: %s", resp.Message)
+	ConsolePrintf("MultiAppend completed: %s\n", resp.Message)
 	return nil
 }
 
@@ -203,7 +203,8 @@ func (s *Server) StartRPCServer() error {
 	// go s.monitorBandwidth()
 	go s.startCLI(cmdChan)
 	go s.StartHyDFSGRPCServer()
-	go s.deleteFilesOutsideMyRange()
+	go s.garbageCollectorProcess(garbageCollectorInterval)
+	// go s.mergeMetadataProcess(mergeInterval)
 
 	// main loop processes commands
 	for cmd := range cmdChan {

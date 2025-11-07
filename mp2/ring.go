@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // GetNodeIndex returns the index of nodeID in a member slice
@@ -70,12 +71,12 @@ func GetAllKeyRange(members []Member, nodeID string, replicationFactor int) (sta
 	end = new(big.Int).Set(myHash)
 
 	// Find predecessor at index: myIdx - replicationFactor + 1
-	predIdx := (myIdx - replicationFactor + 1 + N) % N
+	predIdx := (myIdx - replicationFactor + N) % N
 	predHash := &members[predIdx].Hash
 
 	// Start = predecessor's hash + 1
 	start = new(big.Int).Set(predHash)
-	start.Add(start, big.NewInt(1))
+	LogInfo(true, "Getting All Key Range for node:%s | start:%s | end:%s", nodeID, start, end)
 
 	return start, end
 }
@@ -244,10 +245,13 @@ func (s *Server) getFilesFromSuccessors(successors []Member, start, end big.Int)
 
 // stabilizeRing coordinates the stabilization process by pushing and getting files
 func (s *Server) stabilizeRing(filename string) {
+	startTime := time.Now()
+
 	start, end := GetPrimaryKeyRange(s.Members.GetAll(), s.ID())
 	if start == nil || end == nil {
 		return
 	}
+
 	allFiles := GetFilesWithinRange(s.Metadata.Files, start, end)
 
 	var myFiles []string
@@ -279,6 +283,8 @@ func (s *Server) stabilizeRing(filename string) {
 
 	// Get files/appends from successors
 	s.getFilesFromSuccessors(successors, *start, *end)
+	duration := time.Since(startTime)
+	LogInfo(true, "stabilizeRing completed for node %s (filename=%s) in %s", s.ID(), filename, duration)
 }
 
 func (s *Server) handleReplicationWindowChange(nodeID string) {
