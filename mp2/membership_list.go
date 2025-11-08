@@ -176,15 +176,15 @@ func (ml *MembershipList) Print(printOnConsole bool) {
 	for _, member := range ml.nodes {
 		if Config.Protocol == GossipProtocol {
 			if printOnConsole {
-				ConsolePrintf("Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| Hash: %s| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.Hash.String(), member.LastUpdated.Format(time.RFC3339))
+				ConsolePrintf("VMName: %s | Member: %s | Hash: %s | Status:  %s| Heartbeat: %d| Incarnation: %d\n", AddressToVMName[member.Address], member.ID(), member.Hash.String(), member.Status, member.Heartbeat, member.Incarnation)
 			}
-			LogInfo(true, "Member: %s | Status:  %s| Heartbeat: %d| Incarnation: %d| Hash: %s| LastUpdated: %s\n", member.ID(), member.Status, member.Heartbeat, member.Incarnation, member.Hash.String(), member.LastUpdated.Format(time.RFC3339))
+			LogInfo(true, "VMName: %s | Member: %s | Hash: %s| Status:  %s| Heartbeat: %d| Incarnation: %d\n", AddressToVMName[member.Address], member.ID(), member.Hash.String(), member.Status, member.Heartbeat, member.Incarnation)
 		}
 		if Config.Protocol == PingAckProtocol {
 			if printOnConsole {
-				ConsolePrintf("Member: %s | Status:  %s| Incarnation: %d| Hash: %s\n", member.ID(), member.Status, member.Incarnation, member.Hash.String())
+				ConsolePrintf("VMName: %s | Member: %s | Hash: %s | Status:  %s| Incarnation: %d \n", AddressToVMName[member.Address], member.ID(), member.Hash.String(), member.Status, member.Incarnation)
 			}
-			LogInfo(true, "Member: %s | Status:  %s| Incarnation: %d| Hash: %s\n", member.ID(), member.Status, member.Incarnation, member.Hash.String())
+			LogInfo(true, "VMName: %s | Member: %s | Hash: %s | Status:  %s| Incarnation: %d \n", AddressToVMName[member.Address], member.ID(), member.Hash.String(), member.Status, member.Incarnation)
 		}
 	}
 	if printOnConsole {

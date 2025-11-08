@@ -132,14 +132,24 @@ func CallProtocolSwitch(address string, senderID string, protocol ProtocolType, 
 	return &resp, err
 }
 
-// CallProtocolSwitch makes an RPC call to broadcast protocol switch
+// Get Keys Metadata makes an RPC call to broadcast protocol switch
 func GetKeysMetadata(address string, server *Server, startRange big.Int, endRange big.Int) (*GetFileMetadataResponse, error) {
-	req := &GetFileMetadataRequest{
+	req := &GetFilesMetadataRequest{
 		KeyStartRange: startRange,
 		KeyEndRange:   endRange,
 	}
 	var resp GetFileMetadataResponse
 	err := makeRPCCall(address, "GetFilesMetadata", req, &resp, server)
+	return &resp, err
+}
+
+// CallProtocolSwitch makes an RPC call to broadcast protocol switch
+func GetFileMetadata(address string, server *Server, filename string) (*GetFileMetadataResponse, error) {
+	req := &GetFileMetadataRequest{
+		Filename: filename,
+	}
+	var resp GetFileMetadataResponse
+	err := makeRPCCall(address, "GetFileMetadata", req, &resp, server)
 	return &resp, err
 }
 
@@ -173,4 +183,13 @@ func CallMerge(address string, hyDFSfilename string, server *Server) (*MergeResp
 	var resp MergeResponse
 	err := makeRPCCall(address, "Merge", req, &resp, server)
 	return &resp, err
+}
+
+// fetchMetadataFromNode fetches the file metadata for the range (or file) from a remote node
+func (s *Server) fetchMetadataFromNode(node Member, start, end big.Int) *Metadata {
+	meta, err := GetKeysMetadata(node.Address, globalServer, start, end)
+	if err != nil || meta == nil {
+		return &Metadata{Files: make(map[string]FileMetadata)}
+	}
+	return meta.Metadata
 }

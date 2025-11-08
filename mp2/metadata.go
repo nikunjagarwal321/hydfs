@@ -167,6 +167,28 @@ func (m *Metadata) ListFiles() []string {
 	return names
 }
 
+// DeleteFile deletes a file from metadata in a thread-safe manner
+// Returns true if the file was deleted, false if it didn't exist
+func (m *Metadata) DeleteFile(filename string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Check if file exists
+	if _, exists := m.Files[filename]; !exists {
+		return false
+	}
+
+	// Delete from Files map
+	delete(m.Files, filename)
+
+	// Delete from locks map if it exists
+	if m.locks != nil {
+		delete(m.locks, filename)
+	}
+
+	return true
+}
+
 // PrintFileMetadata prints the metadata for a file with its appends in order
 func (m *Metadata) PrintFileMetadata(filename string) {
 	fileMeta, ok := m.GetFile(filename)

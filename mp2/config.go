@@ -9,6 +9,8 @@ type ProtocolType string
 
 type SuspicionType string
 
+var mergeInterval = 10 * time.Second
+var garbageCollectorInterval = 45 * time.Second
 var heartbeatInterval = 100 * time.Millisecond
 var suspicionCheckTimeout = 1 * time.Second
 var suspicionTimeout = 2 * time.Second

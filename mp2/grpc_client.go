@@ -56,6 +56,9 @@ func (s *Server) SendFileToNode(targetAddr string, data []byte, metadata FileMet
 		if err := stream.Send(chunk); err != nil {
 			return fmt.Errorf("failed to send chunk: %v", err)
 		}
+		if s.BandwidthStats != nil {
+			s.BandwidthStats.AddSent(uint64(len(chunk.GetData())))
+		}
 	}
 
 	// Log metadata for debugging
@@ -71,12 +74,12 @@ func (s *Server) SendFileToNode(targetAddr string, data []byte, metadata FileMet
 		return fmt.Errorf("upload failed: %s", status.GetMessage())
 	}
 
-	ConsolePrintf("File sent to %s (gRPC: %s): %s\n", targetAddr, grpcAddr, status.GetMessage())
+	ConsolePrintf("File sent to %s | %s : %s\n", AddressToVMName[targetAddr], targetAddr, status.GetMessage())
 	return nil
 }
 
 // ReceiveFileFromNode downloads a file from target node via server streaming and writes to local path
-func (s *Server) ReceiveFileFromNode(targetAddr string, hyDFSfilename string, localPath string) error {
+func (s *Server) ReceiveFileFromNode(targetAddr string, hyDFSfilename string, directory string, localPath string) error {
 	grpcAddr := convertToGRPCAddress(targetAddr)
 
 	conn, err := grpc.Dial(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -91,33 +94,39 @@ func (s *Server) ReceiveFileFromNode(targetAddr string, hyDFSfilename string, lo
 		return fmt.Errorf("GetFile RPC failed: %v", err)
 	}
 
-	// Ensure download directory exists
-	if err := os.MkdirAll(s.DownloadDir, 0755); err != nil {
+	if err := os.MkdirAll(directory, 0755); err != nil {
 		return fmt.Errorf("failed to ensure directory: %v", err)
 	}
+	downloadPath := filepath.Join(directory, filepath.Base(localPath))
 
-	// Ensure localPath is in the download directory
-	downloadPath := filepath.Join(s.DownloadDir, filepath.Base(localPath))
 	f, err := os.Create(downloadPath)
 	if err != nil {
 		return fmt.Errorf("failed to create local file: %v", err)
 	}
-	defer f.Close()
 
 	for {
 		chunk, err := stream.Recv()
 		if err == io.EOF {
 			break
 		}
+		if s.BandwidthStats != nil {
+			s.BandwidthStats.AddReceived(uint64(len(chunk.GetData())))
+		}
 		if err != nil {
+			f.Close()
+			os.Remove(downloadPath)
 			return fmt.Errorf("stream recv error: %v", err)
 		}
+
+		defer f.Close()
 		if _, err := f.Write(chunk.GetData()); err != nil {
+			f.Close()
+			os.Remove(downloadPath)
 			return fmt.Errorf("write error: %v", err)
 		}
 	}
 
-	ConsolePrintf("File downloaded from %s (gRPC: %s) to %s\n", targetAddr, grpcAddr, downloadPath)
+	ConsolePrintf("File downloaded from %s | %s to %s\n", AddressToVMName[targetAddr], targetAddr, downloadPath)
 	return nil
 }
 
@@ -162,6 +171,9 @@ func (s *Server) SendAppendToNode(targetAddr string, data []byte, appendInfo App
 
 		if err := stream.Send(chunk); err != nil {
 			return fmt.Errorf("failed to send append chunk: %v", err)
+		}
+		if s.BandwidthStats != nil {
+			s.BandwidthStats.AddSent(uint64(len(chunk.GetData())))
 		}
 	}
 

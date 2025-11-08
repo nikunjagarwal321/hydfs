@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -76,7 +78,7 @@ func (ds *DistributedSystemService) ProtocolSwitch(req *ProtocolSwitchRequest, r
 }
 
 // GetFilesMetadata returns filemetadata within that range
-func (ds *DistributedSystemService) GetFilesMetadata(req *GetFileMetadataRequest, resp *GetFileMetadataResponse) error {
+func (ds *DistributedSystemService) GetFilesMetadata(req *GetFilesMetadataRequest, resp *GetFileMetadataResponse) error {
 	LogInfo(true, "Received GetFilesMetadata request with Keyrange : %s - %s ",
 		req.KeyStartRange.String(), req.KeyEndRange.String())
 
@@ -92,16 +94,36 @@ func (ds *DistributedSystemService) GetFilesMetadata(req *GetFileMetadataRequest
 	return nil
 }
 
+// GetFilesMetadata returns filemetadata within that range
+func (ds *DistributedSystemService) GetFileMetadata(req *GetFileMetadataRequest, resp *GetFileMetadataResponse) error {
+	LogInfo(true, "Received GetFileMetadata request with Filename : %s ",
+		req.Filename)
+
+	fileMetadata, ok := ds.server.Metadata.GetFile(req.Filename)
+	if !ok {
+		resp.Success = false
+		resp.Metadata = &Metadata{Files: make(map[string]FileMetadata)}
+		LogInfo(true, "File not found for GetFileMetadata: %s", req.Filename)
+		return nil
+	}
+	resp.Success = true
+	resp.Metadata = &Metadata{Files: map[string]FileMetadata{req.Filename: fileMetadata}}
+	LogInfo(true, "Successfully provided metadata for file: %s", req.Filename)
+	return nil
+}
+
 // MultiAppend handles multiappend RPC call - calls handleAppend on the server
 func (ds *DistributedSystemService) MultiAppend(req *MultiAppendRequest, resp *MultiAppendResponse) error {
-	LogInfo(true, "Received MultiAppend request: HyDFSfilename=%s, LocalFilename=%s", req.HyDFSFileName, req.LocalFileName)
+	ConsolePrintf("Received MultiAppend request: HyDFSfilename=%s, LocalFilename=%s\n", req.HyDFSFileName, req.LocalFileName)
+	ConsolePrintf("Received MultiAppend request: HyDFSfilename=%s, LocalFilename=%s\n", req.HyDFSFileName, req.LocalFileName)
 
 	// Call handleAppend on the server
 	ds.server.handleAppend(req.LocalFileName, req.HyDFSFileName)
 
 	resp.Success = true
 	resp.Message = fmt.Sprintf("Append operation completed for %s", req.HyDFSFileName)
-	LogInfo(true, "MultiAppend completed: %s", resp.Message)
+	ConsolePrintf("MultiAppend completed: %s\n", resp.Message)
+	ConsolePrintf("MultiAppend completed: %s\n", resp.Message)
 	return nil
 }
 
@@ -170,6 +192,12 @@ func (s *Server) StartRPCServer() error {
 	// Start background processes
 	cmdChan := make(chan string)
 
+	// Clear hydfs folder on startup
+	if err := s.clearHydfsFolder(); err != nil {
+		LogError(true, "Failed to clear hydfs folder: %v", err)
+		// Continue anyway - this is not a fatal error
+	}
+
 	go s.listenForMessages(conn)
 	go s.sendTimelyMessagesAsPerProtocol(gossipOrSwimPingInterval)
 	go s.increaseHeartbeat(heartbeatInterval)
@@ -177,6 +205,8 @@ func (s *Server) StartRPCServer() error {
 	// go s.monitorBandwidth()
 	go s.startCLI(cmdChan)
 	go s.StartHyDFSGRPCServer()
+	go s.garbageCollectorProcess(garbageCollectorInterval)
+	go s.mergeMetadataProcess(mergeInterval)
 
 	// main loop processes commands
 	for cmd := range cmdChan {
@@ -299,13 +329,22 @@ func (s *Server) handleRPCRequest(conn *net.UDPConn, clientAddr *net.UDPAddr, da
 		rpcErr = service.ProtocolSwitch(&req, &resp)
 		result = resp
 	case "GetFilesMetadata":
-		var req GetFileMetadataRequest
+		var req GetFilesMetadataRequest
 		if err := s.convertParams(rpcMsg.Params, &req); err != nil {
 			s.sendRPCError(conn, clientAddr, rpcMsg.ID, fmt.Sprintf("invalid params: %v", err))
 			return
 		}
 		var resp GetFileMetadataResponse
 		rpcErr = service.GetFilesMetadata(&req, &resp)
+		result = resp
+	case "GetFileMetadata":
+		var req GetFileMetadataRequest
+		if err := s.convertParams(rpcMsg.Params, &req); err != nil {
+			s.sendRPCError(conn, clientAddr, rpcMsg.ID, fmt.Sprintf("invalid params: %v", err))
+			return
+		}
+		var resp GetFileMetadataResponse
+		rpcErr = service.GetFileMetadata(&req, &resp)
 		result = resp
 
 	case "MultiAppend":
@@ -388,4 +427,46 @@ func (s *Server) sendRPCError(conn *net.UDPConn, clientAddr *net.UDPAddr, id uin
 	if s.BandwidthStats != nil {
 		s.BandwidthStats.AddSent(uint64(bytesWritten))
 	}
+}
+
+// clearHydfsFolder clears all files in the hydfs directory on startup
+func (s *Server) clearHydfsFolder() error {
+	hydfsDir := s.FileDirectory
+	// Check if directory exists, if not then create and return
+	info, err := os.Stat(hydfsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Directory doesn't exist, create it
+			if err := os.MkdirAll(hydfsDir, 0755); err != nil {
+				return fmt.Errorf("failed to create hydfs directory: %w", err)
+			}
+			LogInfo(true, "Created hydfs directory: %s\n", hydfsDir)
+			return nil
+		}
+		return fmt.Errorf("failed to stat hydfs directory: %w", err)
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("FileDirectory is not a directory: %s", hydfsDir)
+	}
+
+	// Read all files in the directory
+	entries, err := os.ReadDir(hydfsDir)
+	if err != nil {
+		return fmt.Errorf("failed to read hydfs directory: %w", err)
+	}
+
+	// Remove all files in the directory (no need to check for directories, it is guaranteed that all entries will be files)
+	removedCount := 0
+	for _, entry := range entries {
+		filePath := filepath.Join(hydfsDir, entry.Name())
+		if err := os.Remove(filePath); err != nil {
+			LogError(true, "Failed to remove file %s: %v", filePath, err)
+			continue
+		}
+		removedCount++
+	}
+
+	LogInfo(true, "Cleared hydfs folder: %s (removed %d files)\n", hydfsDir, removedCount)
+	return nil
 }

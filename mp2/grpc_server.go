@@ -61,6 +61,17 @@ func (h *HyDFSServer) FileTransfer(stream grpc.ClientStreamingServer[pb.FileChun
 
 		// Append data
 		fileData = append(fileData, chunk.GetData()...)
+		if h.server.BandwidthStats != nil {
+			h.server.BandwidthStats.AddReceived(uint64(len(chunk.GetData())))
+		}
+	}
+
+	// Check if filename is already present in metadata
+	if _, exists := h.server.Metadata.GetFile(filename); exists {
+		return stream.SendAndClose(&pb.UploadStatus{
+			Success: false,
+			Message: fmt.Sprintf("File %s already exists in metadata", filename),
+		})
 	}
 
 	// Save the file
@@ -86,6 +97,8 @@ func (h *HyDFSServer) GetFile(req *pb.FileRequest, stream grpc.ServerStreamingSe
 	filename := req.GetFilename()
 	hydfsDir := h.server.FileDirectory
 
+	ConsolePrintf("RECEIVED GET REQUEST for: file=%s\n", filename)
+
 	meta, ok := h.server.Metadata.GetFile(filename)
 	if !ok {
 		return fmt.Errorf("file %s not found in metadata", filename)
@@ -96,11 +109,11 @@ func (h *HyDFSServer) GetFile(req *pb.FileRequest, stream grpc.ServerStreamingSe
 
 	// Add append file paths
 	for _, appendInfo := range meta.Appends {
+		LogInfo(true, "Appending chunks for Get Request with AppendID:%s\n", appendInfo.AppendID)
 		appendPath := filepath.Join(hydfsDir, appendInfo.AppendID)
 		filePaths = append(filePaths, appendPath)
 	}
 
-	// --- 3️⃣ Read and stream each file sequentially ---
 	buf := make([]byte, 64*1024)
 	for i, path := range filePaths {
 		f, err := os.Open(path)
@@ -120,6 +133,9 @@ func (h *HyDFSServer) GetFile(req *pb.FileRequest, stream grpc.ServerStreamingSe
 				if sendErr := stream.Send(chunk); sendErr != nil {
 					f.Close()
 					return fmt.Errorf("failed to send chunk from %s: %v", path, sendErr)
+				}
+				if h.server.BandwidthStats != nil {
+					h.server.BandwidthStats.AddSent(uint64(len(chunk.GetData())))
 				}
 			}
 			if err == io.EOF {
@@ -142,8 +158,12 @@ func (h *HyDFSServer) GetFile(req *pb.FileRequest, stream grpc.ServerStreamingSe
 			if sendErr := stream.Send(newlineChunk); sendErr != nil {
 				return fmt.Errorf("failed to send newline separator: %v", sendErr)
 			}
+			if h.server.BandwidthStats != nil {
+				h.server.BandwidthStats.AddSent(uint64(len(newlineChunk.GetData())))
+			}
 		}
 	}
+	ConsolePrintf("Completed GET REQUEST for: file=%s\n", filename)
 
 	return nil
 }
@@ -176,6 +196,17 @@ func (h *HyDFSServer) AppendTransfer(stream pb.HyDFSService_AppendTransferServer
 			receivedFirstChunk = true
 		}
 		appendData = append(appendData, chunk.GetData()...)
+		if h.server.BandwidthStats != nil {
+			h.server.BandwidthStats.AddReceived(uint64(len(chunk.GetData())))
+		}
+	}
+
+	if _, ok := h.server.Metadata.GetFile(filename); !ok {
+		LogError(true, "Append couldnt be completed as the file:%s does not exist", filename)
+		return stream.SendAndClose(&pb.UploadStatus{
+			Success: false,
+			Message: fmt.Sprintf("file %s does not exist", filename),
+		})
 	}
 
 	// Compose AppendInfo from chunk meta info
@@ -205,11 +236,13 @@ func (h *HyDFSServer) AppendTransfer(stream pb.HyDFSService_AppendTransferServer
 		})
 	}
 
-	// Store/insert append to metadata (ensure server.Metadata.Files exists)
-	fileMeta, _ := h.server.Metadata.GetFile(filename)
-
-	fileMeta.insertAppend(appendInfo)
-	h.server.Metadata.AddFile(fileMeta)
+	// Store/insert append to metadata
+	if err := h.server.Metadata.AppendToFile(filename, appendInfo); err != nil {
+		return stream.SendAndClose(&pb.UploadStatus{
+			Success: false,
+			Message: fmt.Sprintf("append metadata update failed: %v", err),
+		})
+	}
 	ConsolePrintf("Stored append metadata for file: %s, appendId: %s\n", filename, appendId)
 
 	return stream.SendAndClose(&pb.UploadStatus{
