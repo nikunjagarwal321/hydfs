@@ -9,18 +9,22 @@ type ProtocolType string
 
 type SuspicionType string
 
+var mergeInterval = 10 * time.Second
+var garbageCollectorInterval = 45 * time.Second
 var heartbeatInterval = 100 * time.Millisecond
 var suspicionCheckTimeout = 1 * time.Second
 var suspicionTimeout = 2 * time.Second
 var deadTimeout = 2 * time.Second
-var cleanUpTimeout = 2 * time.Second
+var cleanUpTimeout = 10 * time.Second
 var gossipOrSwimPingInterval = 100 * time.Millisecond
 var PingFanout = 1
 var GossipFanout = 1
-var InitialProtocol = PingAckProtocol
+var InitialProtocol = GossipProtocol
 var InitialSuspicion = NoSuspect
 var InitialMessageDropRate = 0.0
 var AckTimeout = 1 * time.Second
+var ReadTimeout = 1 * time.Second
+var ReplicationFactor = 3
 
 // Use gossipOrSwimPingInterval and GossipFanout in conjunction
 
@@ -57,20 +61,33 @@ var NodeMap = map[string]string{
 	"vm10": "127.0.0.1:5009",
 }
 
+// AddressToVMName maps address to VM name (reverse of NodeMap)
+var AddressToVMName = func() map[string]string {
+	reverseMap := make(map[string]string)
+	for vmName, address := range NodeMap {
+		reverseMap[address] = vmName
+	}
+	return reverseMap
+}()
+
 var Config = struct {
-	IntroducerAddr  string
-	Protocol        ProtocolType
-	Fanout          int
-	AllNodes        []string
-	Suspicion       SuspicionType
-	MessageDropRate float64 // Percentage of messages to drop (0.0 to 1.0)
+	IntroducerAddr    string
+	Protocol          ProtocolType
+	Fanout            int
+	AllNodes          []string
+	Suspicion         SuspicionType
+	MessageDropRate   float64 // Percentage of messages to drop (0.0 to 1.0)
+	HashBits          int     // Number of bits for hash function
+	ReplicationFactor int     // Number of replicas for HyDFS files
 }{
-	IntroducerAddr:  "127.0.0.1:5000",
-	Protocol:        InitialProtocol,
-	Fanout:          PingFanout,             // Number of random nodes to gossip to
-	AllNodes:        []string{},             // Will be populated dynamically
-	Suspicion:       InitialSuspicion,       // Enable suspicion mechanism by default
-	MessageDropRate: InitialMessageDropRate, // No message drop by default
+	IntroducerAddr:    "127.0.0.1:5000",
+	Protocol:          InitialProtocol,
+	Fanout:            PingFanout,             // Number of random nodes to gossip to
+	AllNodes:          []string{},             // Will be populated dynamically
+	Suspicion:         InitialSuspicion,       // Enable suspicion mechanism by default
+	MessageDropRate:   InitialMessageDropRate, // No message drop by default
+	HashBits:          8,                      // Default to 8 bits for hash function
+	ReplicationFactor: ReplicationFactor,      // Default to 3 replicas (including primary)
 }
 
 // SwitchProtocol and ToggleSuspicion allows dynamic protocol and suspicion type switching at runtime

@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"strings"
+	"math/big"
 	"time"
 )
 
@@ -17,24 +17,17 @@ const (
 
 // TO GET A MEMBER, ALWAYS USE ID
 type Member struct {
-	Address               string    `json:"address"`
-	NodeCreationTimestamp time.Time `json:"node_creation_timestamp"`
-	Status                Status    `json:"status"`
-	Heartbeat             uint64    `json:"heartbeat"`
-	Incarnation           uint64    `json:"incarnation"`
-	LastUpdated           time.Time `json:"last_updated"`
+	Address               string
+	NodeCreationTimestamp time.Time
+	Status                Status
+	Heartbeat             uint64
+	Incarnation           uint64
+	LastUpdated           time.Time
+	Hash                  big.Int
 }
 
 func (m *Member) ID() string {
-	return fmt.Sprintf("%s-%d", m.Address, m.NodeCreationTimestamp.UnixNano())
-}
-
-func GetAddressFromID(memberID string) string {
-	lastDash := strings.LastIndex(memberID, "-")
-	if lastDash == -1 {
-		return ""
-	}
-	return memberID[:lastDash]
+	return fmt.Sprintf("%s-%d", m.Address, m.NodeCreationTimestamp.Unix())
 }
 
 func (m *Member) MarkSuspect() {

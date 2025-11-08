@@ -2,58 +2,55 @@ package main
 
 import (
 	"fmt"
+	"math/big"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
 
-// BandwidthStats tracks network bandwidth usage
-type BandwidthStats struct {
-	BytesSent     uint64
-	BytesReceived uint64
-	mu            sync.RWMutex
-}
+// Global server instance (will be set in main)
+var globalServer *Server
 
-func (bs *BandwidthStats) AddSent(bytes uint64) {
-	bs.mu.Lock()
-	bs.BytesSent += bytes
-	bs.mu.Unlock()
-}
+type StabilizationStatus string
 
-func (bs *BandwidthStats) AddReceived(bytes uint64) {
-	bs.mu.Lock()
-	bs.BytesReceived += bytes
-	bs.mu.Unlock()
-}
-
-func (bs *BandwidthStats) GetAndReset() (sent, received uint64) {
-	bs.mu.Lock()
-	defer bs.mu.Unlock()
-	sent = bs.BytesSent
-	received = bs.BytesReceived
-	bs.BytesSent = 0
-	bs.BytesReceived = 0
-	return
-}
+const (
+	NewlyJoined    StabilizationStatus = "NEWLY_JOINED"
+	FailedNode     StabilizationStatus = "FAILED_NODE"
+	ProcessedNode  StabilizationStatus = "PROCESSED_NODE"
+	InProgressNode StabilizationStatus = "IN_PROGRESS_NODE"
+)
 
 type Server struct {
-	Addr                  string
-	NodeCreationTimestamp time.Time
-	IntroducerAddr        string
-	IncarnationNumber     uint64
-	HeartbeatCounter      uint64
-	IsIntroducer          bool
-	Members               *MembershipList
-	BandwidthStats        *BandwidthStats
+	Addr                            string
+	NodeCreationTimestamp           time.Time
+	IntroducerAddr                  string
+	IncarnationNumber               uint64
+	HeartbeatCounter                uint64
+	IsIntroducer                    bool
+	Members                         *MembershipList
+	BandwidthStats                  *BandwidthStats
+	Hash                            big.Int
+	Metadata                        *Metadata
+	FileDirectory                   string
+	LocalDirectory                  string
+	FailedPendingStabilization      map[string]StabilizationStatus
+	NewlyJoinedPendingStabilization map[string]StabilizationStatus
+	stabilizationLock               sync.Mutex
 }
 
 func (s *Server) ID() string {
-	return fmt.Sprintf("%s-%d", s.Addr, s.NodeCreationTimestamp.UnixNano())
+	return fmt.Sprintf("%s-%d", s.Addr, s.NodeCreationTimestamp.Unix())
 }
 
 // IF ANY GLOBAL PROPERTY IS RELATED TO SERVER, SET IT HERE
 func NewServer(addr, introducerAddr string, isIntroducer bool) *Server {
 	// Adding itself in the membership based on the example in class
 	membershipList := NewMembershipList()
+
+	// Compute hash for this server
+	hashValue := HashToMbits(addr)
+
 	member := Member{
 		Address:               addr,
 		NodeCreationTimestamp: time.Now(),
@@ -61,18 +58,45 @@ func NewServer(addr, introducerAddr string, isIntroducer bool) *Server {
 		Heartbeat:             1,
 		Incarnation:           1,
 		LastUpdated:           time.Now(),
+		Hash:                  hashValue,
 	}
 	membershipList.AddOrUpdate(member)
 
+	metadata := &Metadata{
+		Files: make(map[string]FileMetadata),
+	}
+
+	// Get VM name from reverse map for FileDirectory
+	vmName := AddressToVMName[addr]
+
+	// Cleanup own directory during startup
+	if vmName != "" {
+		nodeDir := filepath.Join("hydfs", vmName)
+		if err := os.RemoveAll(nodeDir); err != nil {
+			if !os.IsNotExist(err) {
+				ConsolePrintf("[NewServer] Failed to cleanup own directory %s: %v\n", nodeDir, err)
+			}
+		} else {
+			LogInfo(true, "[NewServer] Cleaned up own directory %s\n", nodeDir)
+		}
+	}
+
 	return &Server{
-		Addr:                  addr,
-		NodeCreationTimestamp: member.NodeCreationTimestamp,
-		IntroducerAddr:        introducerAddr,
-		IncarnationNumber:     member.Incarnation,
-		HeartbeatCounter:      member.Heartbeat,
-		IsIntroducer:          isIntroducer,
-		Members:               membershipList,
-		BandwidthStats:        &BandwidthStats{},
+		Addr:                            addr,
+		NodeCreationTimestamp:           member.NodeCreationTimestamp,
+		IntroducerAddr:                  introducerAddr,
+		IncarnationNumber:               member.Incarnation,
+		HeartbeatCounter:                member.Heartbeat,
+		IsIntroducer:                    isIntroducer,
+		Members:                         membershipList,
+		BandwidthStats:                  &BandwidthStats{},
+		Hash:                            hashValue,
+		Metadata:                        metadata,
+		FileDirectory:                   "../hydfs/" + vmName,
+		LocalDirectory:                  "../localdirectory/" + vmName,
+		FailedPendingStabilization:      make(map[string]StabilizationStatus),
+		NewlyJoinedPendingStabilization: make(map[string]StabilizationStatus),
+		stabilizationLock:               sync.Mutex{},
 	}
 }
 
@@ -120,5 +144,53 @@ func (s *Server) monitorBandwidth() {
 			LogInfo(true, "BANDWIDTH_%s_%s: Sent: %d bytes/s (%.2f KB/s), Received: %d bytes/s (%.2f KB/s), Total: %d bytes/s (%.2f KB/s),\n",
 				Config.Protocol, Config.Suspicion, sent, float64(sent)/1024.0, received, float64(received)/1024.0, sent+received, float64(sent+received)/1024.0)
 		}
+	}
+}
+
+// increaseHeartbeat increments heartbeat counter for gossip protocol
+func (s *Server) increaseHeartbeat(heartbeatInterval time.Duration) {
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		// Increment the server's heartbeat counter only for Gossip
+		if Config.Protocol == PingAckProtocol {
+			continue
+		}
+
+		s.HeartbeatCounter++
+
+		// Create updated member info for self
+		selfMember := Member{
+			Address:               s.Addr,
+			NodeCreationTimestamp: s.NodeCreationTimestamp,
+			Status:                StatusAlive,
+			Heartbeat:             s.HeartbeatCounter,
+			Incarnation:           s.IncarnationNumber,
+			LastUpdated:           time.Now(),
+			Hash:                  s.Hash, // Preserve the hash
+		}
+
+		// Update self in the membership list
+		s.Members.AddOrUpdate(selfMember)
+
+	}
+}
+
+func (s *Server) garbageCollectorProcess(garbageCollectorInterval time.Duration) {
+	ticker := time.NewTicker(garbageCollectorInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		s.deleteFilesOutsideMyRange()
+	}
+}
+
+func (s *Server) mergeMetadataProcess(mergeInterval time.Duration) {
+	ticker := time.NewTicker(mergeInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		s.executeMergeForAllFiles()
 	}
 }
