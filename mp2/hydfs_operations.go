@@ -557,9 +557,13 @@ func ordersMatch(localAppendIDs []string, remoteAppends []AppendInfo) bool {
 }
 
 func (s *Server) executeMergeForAllFiles() {
-	fileNames := s.Metadata.ListFiles()
+	start, end := GetPrimaryKeyRange(s.Members.GetAll(), s.ID())
+	if start == nil || end == nil {
+		return
+	}
+	allFiles := GetFilesWithinRange(s.Metadata.Files, start, end)
 	LogInfo(true, "[executeMergeForAllFiles] Executing Merge for all files\n")
-	for _, name := range fileNames {
+	for _, name := range allFiles {
 		s.executeMerge(name)
 	}
 }

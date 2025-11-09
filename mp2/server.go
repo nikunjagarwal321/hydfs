@@ -71,7 +71,7 @@ func NewServer(addr, introducerAddr string, isIntroducer bool) *Server {
 
 	// Cleanup own directory during startup
 	if vmName != "" {
-		nodeDir := filepath.Join("hydfs", vmName)
+		nodeDir := filepath.Join("../hydfs", vmName)
 		if err := os.RemoveAll(nodeDir); err != nil {
 			if !os.IsNotExist(err) {
 				ConsolePrintf("[NewServer] Failed to cleanup own directory %s: %v\n", nodeDir, err)
