@@ -101,3 +101,12 @@ type MergeResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 }
+
+type ExecuteCommandRequest struct {
+	Command string
+}
+
+type ExecuteCommandResponse struct {
+	Success bool
+	Message string
+}

@@ -26,8 +26,6 @@ func (s *Server) handleCommand(cmd string) {
 	command := parts[0]
 
 	switch command {
-	case "list_mem":
-		s.Members.Print(true)
 	case "list_self":
 		ConsolePrintf("Self ID: %s\n", s.ID())
 	case "leave":

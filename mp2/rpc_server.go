@@ -377,6 +377,16 @@ func (s *Server) handleRPCRequest(conn *net.UDPConn, clientAddr *net.UDPAddr, da
 		rpcErr = service.Merge(&req, &resp)
 		result = resp
 
+	case "ExecuteCommand":
+		var req ExecuteCommandRequest
+		if err := s.convertParams(rpcMsg.Params, &req); err != nil {
+			s.sendRPCError(conn, clientAddr, rpcMsg.ID, fmt.Sprintf("invalid params: %v", err))
+			return
+		}
+		var resp ExecuteCommandResponse
+		rpcErr = service.ExecuteCommand(&req, &resp)
+		result = resp
+
 	default:
 		s.sendRPCError(conn, clientAddr, rpcMsg.ID, fmt.Sprintf("unknown method: %s", rpcMsg.Method))
 		return
@@ -468,5 +478,18 @@ func (s *Server) clearHydfsFolder() error {
 	}
 
 	LogInfo(true, "Cleared hydfs folder: %s (removed %d files)\n", hydfsDir, removedCount)
+	return nil
+}
+
+func (ds *DistributedSystemService) ExecuteCommand(req *ExecuteCommandRequest, resp *ExecuteCommandResponse) error {
+	if ds.server == nil {
+		resp.Success = false
+		resp.Message = "Server reference is nil"
+		return nil
+	}
+
+	go ds.server.handleCommand(req.Command) // Run asynchronously
+	resp.Success = true
+	resp.Message = fmt.Sprintf("Command '%s' sent for execution", req.Command)
 	return nil
 }
