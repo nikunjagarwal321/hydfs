@@ -195,7 +195,7 @@ func handleDeadNode(server *Server, m Member) {
 }
 
 func handleNewlyJoinedNode(server *Server, m Member) {
-	if server.NewlyJoinedPendingStabilization[m.ID()] == FailedNode {
+	if server.NewlyJoinedPendingStabilization[m.ID()] == NewlyJoined {
 		return
 	}
 	server.NewlyJoinedPendingStabilization[m.ID()] = NewlyJoined

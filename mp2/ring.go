@@ -300,9 +300,12 @@ func (s *Server) handleReplicationWindowChange(nodeID string) {
 	}
 	for i := 1; i < Config.ReplicationFactor; i++ {
 		if GetRingSuccessorIdx(myIdx, i, len(members)) == changedIdx || GetRingPredecessorIdx(myIdx, len(members)) == changedIdx {
+			startTime := time.Now()
+
 			ConsolePrintf("Triggering stabilization because of %s | %s \n", AddressToVMName[strings.Split(nodeID, "-")[0]], nodeID)
 			s.stabilizeRing("")
-			ConsolePrintf("Stabilization completed for node %s\n", nodeID)
+			duration := time.Since(startTime)
+			ConsolePrintf("Stabilization completed for node %s in time %s\n", nodeID, duration)
 			return
 		}
 	}
