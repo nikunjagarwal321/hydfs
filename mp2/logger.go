@@ -75,9 +75,11 @@ func LogPrintln(args ...interface{}) {
 // ConsolePrintf writes formatted output to console (terminal)
 func ConsolePrintf(format string, args ...interface{}) {
 	fmt.Printf(format, args...)
+	LogInfo(true, format, args...)
 }
 
 // ConsolePrintln writes output to console (terminal)
 func ConsolePrintln(args ...interface{}) {
 	fmt.Println(args...)
+	LogInfo(true, fmt.Sprintln(args...))
 }
