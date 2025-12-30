@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	pb "distributed_log_query/proto"
+	pb "hy_dfs/proto"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"

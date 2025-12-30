@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package proto;
 
-option go_package = "distributed_log_query/mp2/proto;proto";
+option go_package = "hy_dfs/hy_dfs/proto;proto";
 
 service HyDFSService {
   // Client streams file chunks to the server

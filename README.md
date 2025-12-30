@@ -4,7 +4,11 @@ Teammates: nikunja2, akashe2
 
 
 ## Description 
-This Golang program implements a distributed membership system supporting two protocols, Gossip and PingAck, each with Suspect and NoSuspect modes. All configurations share a common membership list, and multiple background goroutines handle heartbeats, suspicion and failure tracking, message processing, command-line input, and periodic status updates. Nodes are evaluated for SUSPECT or DEAD status every T time based on configurable thresholds. The system uses a round-robin node selection with configurable fanout and message intervals, enabling timely failure detection, while maintaining moderate bandwidth usage. Both protocols share the suspicion logic, but differ in merging: Gossip propagates heartbeat counters and merges without waiting for acknowledgments, whereas PingAck piggybacks membership info on pings and ACKs and waits for responses. Merge rules prioritize failures, then higher incarnation numbers, followed by suspicion status, and finally heartbeat counters for Gossip, ensuring accurate and consistent membership state across nodes.
+This project is a distributed file storage system built in Go, designed for high availability, fault tolerance, and efficient data transfer. It uses the Gossip Protocol for membership management, RPC for control operations, and gRPC with Protobuf for high-performance data transfer. The system maintains a replication factor of three, tolerating up to two node failures. In case of a failure, data remains available through surviving replicas, and the merge and re-replication mechanisms automatically restore lost copies.
+
+The system follows an eventual consistency model, where a write is acknowledged after any one replica responds, and background protocols ensure data eventually propagates to all replicas. Appends are stored as separate files with their order preserved in metadata, and each carries a timestamp and AppendID to maintain ordering. A periodic merge process verifies checksums and synchronizes files and metadata, resolving conflicts using the primary’s metadata as the source of truth.
+
+When a node or its neighbors fail, re-replication is triggered, ensuring primary nodes restore missing files. New nodes joining the system fetch the required data, while a garbage collector removes redundant files outside their replication range. Overall, this system provides a lightweight, reliable, and self-healing storage solution with automated recovery and consistency maintenance.
 
 ## How to Run
 
@@ -13,7 +17,7 @@ This Golang program implements a distributed membership system supporting two pr
 - Go 1.25+ installed.
 
 ### 2. Start Servers
-Run servers in each of the servers
+Run servers in each of the servers. Starts rpc and grpc servers in ports 8080 and 9080 respectively
 
 In each terminal, run:
 ```
@@ -35,18 +39,21 @@ go run . vm9
 go run . vm10
 ```
 
+### 3. CLI Commands
 
-
-### 3. Commands that can be run run
-
-- `list_mem`: list the membership list
-
-- `list_self`: list self’s id
-
-- `leave`: voluntarily leave the group (different from a failure)
-
-- `display_suspects` List suspected nodes.
-
-- `switch {gossip, ping} {suspect, nosuspect}` This takes two parameters—it switches the current mechanism to gossip/ping (whichever is first parameter), and without or without suspicion (second parameter)
-
-- `display_protocol` This should output a pair that is <{gossip, ping}, {suspect, nosuspect}>
+- `list_self`: print this node’s membership identifier.
+- `list_mem_ids`: show the current membership list with hashes and status.
+- `display_protocol`: report the active `{protocol, suspicion}` pair and drop rate.
+- `switch {gossip|ping} {suspect|nosuspect}`: change the membership protocol and suspicion mode and broadcast to peers.
+- `display_suspects`: list nodes currently marked as suspects.
+- `drop <percentage>`: inject simulated message loss (e.g., `drop 0.2` for 20%).
+- `leave`: issue a voluntary leave announcement.
+- `create <local> <hyDFS>`: upload a local file into HyDFS.
+- `get <hyDFS> <local>`: download a HyDFS file into the local directory.
+- `append <local> <hyDFS>`: append data from a local file to a HyDFS file.
+- `merge <hyDFS>`: trigger metadata/file reconciliation for the named file.
+- `multiappend <hyDFS> <vm...> <local...>`: orchestrate parallel appends from multiple VMs.
+- `printmeta <hyDFS>`: display stored metadata (including append order) for a file.
+- `ls <hyDFS>`: list replicas that currently store the file.
+- `liststore`: enumerate all files stored on this VM along with their IDs.
+- `getfromreplica <vm> <hyDFS> <local>`: fetch a replica directly from a specific VM.

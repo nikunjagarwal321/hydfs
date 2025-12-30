@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 
-	pb "distributed_log_query/proto"
+	pb "hy_dfs/proto"
 
 	"google.golang.org/grpc"
 )
