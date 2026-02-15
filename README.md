@@ -1,8 +1,4 @@
 # Distributed System (HyDFS)
-Group Number: 37  
-Teammates: nikunja2, akashe2
-
-## Description
 
 This project is a distributed file storage system (HyDFS) built in **Go**, designed for high availability, fault tolerance, and efficient data transfer.
 
