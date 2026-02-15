@@ -1,14 +1,66 @@
-# Distributed System
-Group Number : 37
+# Distributed System (HyDFS)
+Group Number: 37  
 Teammates: nikunja2, akashe2
 
+## Description
 
-## Description 
-This project is a distributed file storage system built in Go, designed for high availability, fault tolerance, and efficient data transfer. It uses the Gossip Protocol for membership management, RPC for control operations, and gRPC with Protobuf for high-performance data transfer. The system maintains a replication factor of three, tolerating up to two node failures. In case of a failure, data remains available through surviving replicas, and the merge and re-replication mechanisms automatically restore lost copies.
+This project is a distributed file storage system (HyDFS) built in **Go**, designed for high availability, fault tolerance, and efficient data transfer.
 
-The system follows an eventual consistency model, where a write is acknowledged after any one replica responds, and background protocols ensure data eventually propagates to all replicas. Appends are stored as separate files with their order preserved in metadata, and each carries a timestamp and AppendID to maintain ordering. A periodic merge process verifies checksums and synchronizes files and metadata, resolving conflicts using the primary’s metadata as the source of truth.
+### Design
 
-When a node or its neighbors fail, re-replication is triggered, ensuring primary nodes restore missing files. New nodes joining the system fetch the required data, while a garbage collector removes redundant files outside their replication range. Overall, this system provides a lightweight, reliable, and self-healing storage solution with automated recovery and consistency maintenance.
+- **Language & protocols:** The system is implemented in Go. By default it uses the **Gossip Protocol without suspicion** for membership.
+- **Control vs data plane:** **RPC** is used for the control plane (coordination and metadata operations), and **gRPC with Protobuf** for data transfer. This keeps coordination lightweight while enabling efficient, high-throughput file transfers over gRPC.
+
+### Replication Level
+
+- Replication level is **3**, tolerating up to **two node failures**. In the worst case, data remains available on at least one replica; the **merge** and **re-replication** mechanisms then copy it to other nodes as needed.
+
+### Consistency Model
+
+- **Writes:** The client sends data in parallel to three servers (one primary and two replicas). A write is considered **successful once any one server acknowledges**. The system is **eventually consistent**: if data is written to at least one server, merge and stabilization protocols ensure it eventually propagates to all replicas.
+- **Reads:** The client first queries the **primary**. If the primary does not respond, the system retrieves the file from a **replica**.
+
+### Appends, Ordering, and Merge
+
+- **Appends:** Each append is stored as a **separate file**; append **order is maintained in metadata**. On read, this metadata is used to **concatenate append files in sequence** before returning the result.
+- **Ordering:** Each append has a **client timestamp** and a unique **AppendID** (e.g. `filename_timestamp_clientId`). **Per-client append ordering** is enforced using this timestamp.
+- **Merge:** A **periodic merge process** verifies consistency using **file checksums** and append metadata. If discrepancies are found, the system synchronizes files and metadata. When metadata append ordering differs, the **primary’s metadata** is used as the source of truth and replicated. Merge runs periodically to keep replicas aligned.
+
+### Re-Replication and Recovery
+
+- **Trigger:** Re-replication is triggered when any of the **next two successors** or the **predecessor** of a node fails.
+- **Stabilization:** The stabilization protocol ensures each node **re-replicates files for which it is the primary**, based on the updated ring of active nodes. The node fetches metadata from its **next two successors**; if any file or append is missing, it uses the existing `createFile` and `appendFile` logic to restore them.
+- **New nodes:** When a new node joins, some existing nodes may hold **redundant files** outside their replication range. A **background garbage collector** periodically removes such extra data.
+
+## Flow Diagrams
+
+### Write (Create / Append)
+
+Client sends data in parallel to primary and two replicas; success on first acknowledgment.
+
+![Write flow](flowdiagram/write.png)
+
+### Read (Get)
+
+Client tries primary first; on failure, falls back to a replica.
+
+![Read flow](flowdiagram/read.png)
+
+### Merge (Reconciliation)
+
+Periodic merge verifies checksums and metadata, then syncs from primary when needed.
+
+![Merge process](flowdiagram/merge.png)
+
+### Re-Replication (Stabilization)
+
+Triggered when a successor or predecessor fails; primary re-replicates its files to restore redundancy.
+
+![Re-replication flow](flowdiagram/rereplication.png)
+
+### High-Level Data Paths
+
+![Control and data plane](flowdiagram/data-paths.png)
 
 ## How to Run
 

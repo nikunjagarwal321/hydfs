@@ -1,0 +1,94 @@
+## Flow Diagrams
+
+### Write (Create / Append)
+
+Client sends data in parallel to primary and two replicas; success on first acknowledgment.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant P as Primary
+    participant R1 as Replica 1
+    participant R2 as Replica 2
+
+    C->>+P: write (gRPC)
+    C->>+R1: write (gRPC)
+    C->>+R2: write (gRPC)
+
+    alt Any one responds first
+        P-->>C: ACK
+        C->>C: Return success (eventually consistent)
+    else Replica responds first
+        R1-->>C: ACK
+        C->>C: Return success
+    end
+
+    Note over P,R2: Merge/stabilization later propagates to all replicas
+```
+
+### Read (Get)
+
+Client tries primary first; on failure, falls back to a replica.
+
+```mermaid
+flowchart LR
+    subgraph Read flow
+        A[Client] --> B{Query primary}
+        B -->|OK| C[Return file]
+        B -->|Fail / timeout| D[Query replica]
+        D --> E[Return file]
+    end
+```
+
+### Merge (Reconciliation)
+
+Periodic merge verifies checksums and metadata, then syncs from primary when needed.
+
+```mermaid
+flowchart TB
+    subgraph Merge process
+        A[Periodic trigger] --> B[Fetch metadata from replicas]
+        B --> C{Checksums & append order OK?}
+        C -->|Yes| D[Done]
+        C -->|No| E[Sync files / chunks]
+        E --> F[Replicate primary metadata as truth]
+        F --> D
+    end
+```
+
+### Re-Replication (Stabilization)
+
+Triggered when a successor or predecessor fails; primary re-replicates its files to restore redundancy.
+
+```mermaid
+flowchart TB
+    subgraph Re-replication
+        A[Successor or predecessor fails] --> B[Stabilization: update ring]
+        B --> C[For each file I am primary]
+        C --> D[Fetch metadata from next 2 successors]
+        D --> E{File/append missing?}
+        E -->|Yes| F[createFile / appendFile to restore]
+        E -->|No| G[Up to date]
+        F --> G
+    end
+```
+
+### High-Level Data Paths
+
+```mermaid
+flowchart LR
+    subgraph Control plane
+        RPC[RPC] --> Meta[Metadata / coordination]
+    end
+
+    subgraph Data plane
+        gRPC[gRPC + Protobuf] --> Data[File transfer]
+    end
+
+    Client[Client] --> RPC
+    Client --> gRPC
+    Meta --> P[Primary]
+    Meta --> R[Replicas]
+    Data --> P
+    Data --> R
+```
