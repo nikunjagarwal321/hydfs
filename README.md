@@ -38,29 +38,29 @@ This project is a distributed file storage system (HyDFS) built in **Go**, desig
 
 Client sends data in parallel to primary and two replicas; success on first acknowledgment.
 
-![Write flow](flowdiagram/write.png)
+![Write flow](flowdiagram/write-flow.png)
 
 ### Read (Get)
 
 Client tries primary first; on failure, falls back to a replica.
 
-![Read flow](flowdiagram/read.png)
+![Read flow](flowdiagram/read-flow.png)
 
 ### Merge (Reconciliation)
 
 Periodic merge verifies checksums and metadata, then syncs from primary when needed.
 
-![Merge process](flowdiagram/merge.png)
+![Merge process](flowdiagram/merge-flow.png)
 
 ### Re-Replication (Stabilization)
 
 Triggered when a successor or predecessor fails; primary re-replicates its files to restore redundancy.
 
-![Re-replication flow](flowdiagram/rereplication.png)
+![Re-replication flow](flowdiagram/re-replication-flow.png)
 
 ### High-Level Data Paths
 
-![Control and data plane](flowdiagram/data-paths.png)
+![Control and data plane](flowdiagram/high-level-data-paths.png)
 
 ## How to Run
 
